@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Devices</title>
+    <style>
+      html, body { height: 100%; }
+      body { font-family: system-ui, sans-serif; margin: 0; background: #0d0f14; color: #e7e9ee; display: flex; align-items: flex-start; justify-content: center; }
+      .wrap { width: min(980px, 96vw); padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+      .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+      .card { background: #11161f; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+      .card h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+      .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+      .dot.ok { background: #39d98a; }
+      .dot.warn { background: #f7c948; }
+      .dot.err { background: #e55353; }
+      .kv { font-size: 13px; opacity: .9; display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; }
+      .kv div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      a { text-decoration: none; color: #4fd688; font-weight: 600; }
+      button { font-size: 14px; padding: 8px 12px; border-radius: 10px; border: none; background: #2a7; color: #041; cursor: pointer; }
+      button.stop { background: #e55; color: #210; }
+      button.secondary { background: #27a; color: #041; }
+      .summary { font-size: 13px; opacity: .85; }
+      @media (max-width: 600px) {
+        .wrap { width: min(96vw, 360px); padding: 14px; }
+        button { font-size: 14px; padding: 8px 10px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="toolbar">
+        <h1 style="margin:0; font-size: 20px;">Devices</h1>
+        <button class="secondary" onclick="startAll()">Start All</button>
+        <button class="stop" onclick="stopAll()">Stop All</button>
+        <div id="summary" class="summary"></div>
+      </div>
+      <div id="grid" class="grid"></div>
+      <div class="summary">If empty, open test viewer: <a href="/view/test">/view/test</a></div>
+    </div>
+    <script>
+      async function start(id){
+        try { await fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bitrate: 8000000, audio: true }) }) } catch(_){ }
+      }
+      async function stop(id){
+        try { await fetch('/device/'+id+'/stop', { method:'POST' }) } catch(_){ }
+      }
+      async function startAll(){ try { await fetch('/start', { method:'POST' }) } catch(_){ } }
+      async function stopAll(){ try { await fetch('/stop', { method:'POST' }) } catch(_){ } }
+
+      let prev = {}
+      async function refresh(){
+        let devices = []
+        let debug = {}
+        try {
+          const d = await fetch('/devices').then(r=>r.json())
+          devices = d.devices || []
+        } catch(_){ }
+        try {
+          debug = await fetch('/debug').then(r=>r.json())
+        } catch(_){ }
+        const grid = document.getElementById('grid')
+        grid.innerHTML = ''
+        let online = devices.length
+        let viewersTotal = 0
+        for (const id of devices){
+          const info = debug[id] || {}
+          const v = info.viewers || 0
+          viewersTotal += v
+          const pipeline = info.pipeline || 'annexb'
+          const counters = info.counters || { videoBytes:0, videoPkts:0, controlBytes:0, controlPkts:0 }
+          const last = prev[id] || counters
+          const vbps = Math.max(0, counters.videoBytes - (last.videoBytes||0))
+          const cbps = Math.max(0, counters.controlBytes - (last.controlBytes||0))
+          prev[id] = counters
+          const card = document.createElement('div')
+          card.className = 'card'
+          const title = document.createElement('h2')
+          const dot = document.createElement('span')
+          dot.className = 'dot ok'
+          title.appendChild(dot)
+          const name = document.createElement('span')
+          name.textContent = id
+          title.appendChild(name)
+          card.appendChild(title)
+          const kv = document.createElement('div')
+          kv.className = 'kv'
+          kv.innerHTML =
+            '<div>Pipeline</div><div>'+pipeline+'</div>'+
+            '<div>Viewers</div><div>'+v+'</div>'+
+            '<div>Video rate</div><div>'+formatBytes(vbps)+'/s</div>'+
+            '<div>Control rate</div><div>'+formatBytes(cbps)+'/s</div>'
+          card.appendChild(kv)
+          const actions = document.createElement('div')
+          actions.className = 'actions'
+          actions.innerHTML =
+            '<a href="/view/'+id+'">Open</a>'+
+            '<button onclick="start(\''+id+'\')">Start</button>'+
+            '<button class="stop" onclick="stop(\''+id+'\')">Stop</button>'
+          card.appendChild(actions)
+          grid.appendChild(card)
+        }
+        document.getElementById('summary').textContent = 'Online '+online+' • Viewers '+viewersTotal
+      }
+      function formatBytes(n){
+        const units = ['B','KB','MB','GB']
+        let i = 0
+        let v = n
+        while (v >= 1024 && i < units.length-1){ v/=1024; i++ }
+        return (i ? v.toFixed(1) : v|0) + ' ' + units[i]
+      }
+      refresh()
+      setInterval(refresh, 1000)
+    </script>
+  </body>
+</html>
+  </body>
+</html>

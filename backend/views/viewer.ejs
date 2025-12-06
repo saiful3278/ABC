@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Viewer <%= id %></title>
+    <style>
+      html, body { height: 100%; }
+      body { margin: 0; background: #0d0f14; color: #e7e9ee; }
+      .container { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; gap: 12px; padding: 12px; }
+      #header { width: 100%; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+      #controls { width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+      #controls button { font-size: 16px; padding: 12px; border-radius: 10px; border: none; background: #2a7; color: #041; cursor: pointer; width: 100%; }
+      #controls button#stop { background: #e55; color: #210; }
+      #controls button#fallback { background: #27a; color: #041; }
+      #status { font-size: 14px; opacity: .9; }
+      #statusbar { display:flex; gap:8px; align-items:center; font-size:13px; opacity:.9; }
+      #statusbar .dot { width:10px; height:10px; border-radius:50%; background:#e55353; }
+      #statusbar .dot.ok { background:#39d98a; }
+      #stats { font-size:12px; opacity:.8; }
+      #error { width: 100%; max-width: 720px; color: #210; background: #e55; border-radius: 8px; padding: 8px 10px; display: none; }
+      canvas { width: min(96vw, 360px); max-width: 360px; aspect-ratio: 9 / 16; background: #000; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+      #log { width: min(96vw, 360px); max-height: 30vh; overflow: auto; font-size: 12px; background: #111; border-radius: 10px; padding: 8px 10px; opacity: .9; }
+      #diag { width: min(96vw, 360px); font-size: 12px; opacity: .9; }
+      @media (max-width: 600px) {
+        #controls { grid-template-columns: 1fr; }
+        #controls button { font-size: 16px; padding: 12px; }
+        #status { font-size: 12px; }
+        canvas { width: min(96vw, 360px); }
+        #log { width: min(96vw, 360px); max-height: 34vh; }
+      }
+      @media (orientation: landscape) {
+        canvas { width: min(94vw, 640px, 70vh); aspect-ratio: 16 / 9; }
+        #log { width: min(94vw, 640px, 70vh); }
+        #diag { width: min(94vw, 640px, 70vh); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div id="header">
+        <div id="statusbar"><span class="dot" id="wsdot"></span><span>Viewer <%= id %></span><span id="status">Disconnected</span></div>
+        <div id="diag"></div>
+        <div id="stats"></div>
+        <div id="error"></div>
+      </div>
+      <div id="controls">
+        <button id="stop">Stop Stream</button>
+      </div>
+      <canvas id="canvas"></canvas>
+      <div id="log"></div>
+    </div>
+    <script>
+      const id = '<%= id %>'
+      const ws = new WebSocket('ws://' + location.host + '/ws')
+      ws.binaryType = 'arraybuffer'
+      ws.addEventListener('open', () => {
+        setStatus('Connected')
+        setWs(true)
+        log('ws open')
+        ws.send(JSON.stringify({ type: 'viewer', id }))
+        try { ws.send(JSON.stringify({ type:'mode', id, mode:'fmp4' })) } catch(_){ }
+        try { ws.send(JSON.stringify({ type:'request_init', id })) } catch(_){ }
+        try { fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bitrate: 1500000, maxSize: 540, maxFps: 60, audio: false }) }) } catch(_){ }
+      })
+      ws.addEventListener('error', (e) => { log('ws error ' + e.message) })
+      ws.addEventListener('close', () => { setWs(false); setStatus('Disconnected'); log('ws close') })
+      let mode = 'fmp4'
+      ws.addEventListener('message', (ev) => {
+        if (typeof ev.data === 'string') {
+          try {
+            const msg = JSON.parse(ev.data)
+            if (msg.type === 'mode') { mode = 'fmp4'; setStatus('Mode: fmp4'); log('mode fmp4') }
+          } catch (_) {}
+        }
+      })
+
+      const canvas = document.getElementById('canvas')
+      let mediaSource = new MediaSource()
+      let videoEl = document.createElement('video')
+      videoEl.muted = true
+      videoEl.autoplay = true
+      videoEl.playsInline = true
+      videoEl.style.display = 'none'
+      document.body.appendChild(videoEl)
+      videoEl.src = URL.createObjectURL(mediaSource)
+      videoEl.addEventListener('loadedmetadata', () => { updateAspectFromVideo() })
+      function resizeCanvas(){ const r = canvas.getBoundingClientRect(); const dpr = window.devicePixelRatio||1; canvas.width = Math.floor(r.width*dpr); canvas.height = Math.floor(r.height*dpr) }
+      resizeCanvas()
+      const ctx = canvas.getContext('2d')
+      let sourceBuffer = null
+      let queue = []
+      let initialized = false
+      let rafId = null
+      let msOpened = false
+      let playStarted = false
+      mediaSource.addEventListener('sourceopen', () => {
+        msOpened = true
+        try { mediaSource.duration = Infinity } catch(_){ }
+        log('media source open')
+        updateDiag()
+        try { ws.send(JSON.stringify({ type:'request_init', id })) } catch(_){ }
+      })
+      mediaSource.addEventListener('sourceended', () => { log('media source ended'); resetPlayer() })
+      mediaSource.addEventListener('sourceclose', () => log('media source close'))
+      videoEl.addEventListener('error', (e) => { setError('video error'); updateDiag(); log('video error') })
+      videoEl.addEventListener('waiting', () => log('video waiting'))
+      videoEl.addEventListener('stalled', () => log('video stalled'))
+      videoEl.addEventListener('canplay', () => log('video canplay'))
+      videoEl.addEventListener('canplaythrough', () => log('video canplaythrough'))
+      ws.addEventListener('message', ev => {
+        if (typeof ev.data === 'string') return
+        const buf = ev.data
+        if (!(buf instanceof ArrayBuffer)) return
+        const arr = new Uint8Array(buf)
+        if (mode === 'fmp4' || mode === null) {
+          if (!initialized) {
+            if (!msOpened) { queue.push(arr); log('queue init (ms not open) ' + arr.length); return }
+            try { if (!isInit(arr)) { queue.push(arr); log('queue non-init until init arrives ' + arr.length); return } } catch(_){ }
+            if (!sourceBuffer) {
+              const codec = extractAvcCodec(arr) || 'avc1.42E01E'
+              try {
+                sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="' + codec + '"')
+                try { sourceBuffer.mode = 'sequence' } catch(_){ }
+              } catch (e) {
+                log('addSourceBuffer error ' + e.message)
+                return
+              }
+              codecText = codec
+              sourceBuffer.addEventListener('updateend', () => {
+                while (queue.length && !sourceBuffer.updating) {
+                  const next = queue.shift()
+                  try { sourceBuffer.appendBuffer(next) } catch (e) { log('append error ' + e.message) }
+                }
+                try {
+                  if (sourceBuffer.buffered && sourceBuffer.buffered.length) {
+                    const last = sourceBuffer.buffered.length - 1
+                    const end = sourceBuffer.buffered.end(last)
+                    const start0 = sourceBuffer.buffered.start(0)
+                    const startCut = Math.max(0, end - 8)
+                    try { if (start0 < startCut) sourceBuffer.remove(0, startCut) } catch(_){}
+                    try {
+                      const drift = end - (isNaN(videoEl.currentTime) ? 0 : videoEl.currentTime)
+                      if (drift > 0.6) videoEl.currentTime = Math.max(0, end - 0.25)
+                    } catch(_){ }
+              }
+                } catch(_){ }
+                updateDiag()
+              })
+              sourceBuffer.addEventListener('error', () => { setError('sourceBuffer error'); try { resetPlayer() } catch(_){ }; log('sourceBuffer error') })
+              sourceBuffer.addEventListener('abort', () => log('sourceBuffer abort'))
+              try { videoEl.play().catch(()=>{}) } catch(_){}
+              log('source buffer created ' + codec)
+              updateDiag()
+            }
+            initialized = true
+            if (sourceBuffer.updating) { queue.push(arr); log('queue init ' + arr.length); return }
+            try { sourceBuffer.appendBuffer(arr); log('init appended ' + arr.length) } catch (e) { log('append init error ' + e.message) }
+            try { renderFromVideo() } catch(_){}
+          } else {
+            if (!sourceBuffer || sourceBuffer.updating) { queue.push(arr); log('queue seg ' + arr.length); return }
+            try { sourceBuffer.appendBuffer(arr); log('seg appended ' + arr.length) } catch (e) { setError('append seg error ' + e.message); log('append seg error ' + e.message) }
+            updateDiag()
+          }
+        }
+      })
+      function renderFromVideo(){
+        ctx.drawImage(videoEl,0,0,canvas.width,canvas.height)
+        rafId = requestAnimationFrame(renderFromVideo)
+      }
+      function updateAspectFromVideo(){ const w = videoEl.videoWidth||0, h = videoEl.videoHeight||0; if (w && h) { canvas.style.aspectRatio = w + ' / ' + h; resizeCanvas() } }
+      function stopRender(){
+        if (rafId){ cancelAnimationFrame(rafId); rafId = null }
+      }
+      videoEl.addEventListener('playing', () => {
+        playStarted = true
+        setStatus('Streaming')
+        if (mode === 'fmp4' || mode === null) {
+          if (!rafId) renderFromVideo()
+        }
+        updateAspectFromVideo()
+        log('video playing')
+      })
+      window.addEventListener('resize', () => { resizeCanvas(); log('resize '+JSON.stringify({w:canvas.width,h:canvas.height})) })
+      ws.addEventListener('close', () => { stopRender(); setStatus('Disconnected') })
+      function setStatus(t){ document.getElementById('status').textContent = t; log('status ' + t) }
+      function setWs(ok){ const d = document.getElementById('wsdot'); if (d) d.className = 'dot' + (ok ? ' ok' : '') }
+      function setError(t){ const el = document.getElementById('error'); el.textContent = t; el.style.display = 'block' }
+      function clearError(){ const el = document.getElementById('error'); el.textContent = ''; el.style.display = 'none' }
+      function hasIdr(arr){
+        for(let i=0;i+4<=arr.length;i++){
+          if(arr[i]===0&&arr[i+1]===0&&arr[i+2]===0&&arr[i+3]===1){
+            const nalType = arr[i+4]&0x1f
+            if(nalType===5) return true
+          }
+        }
+        return false
+      }
+      function nalType(nal){ return (nal[0]&0x1f) }
+      function splitAnnexB(buf){
+        const out = []
+        let i = 0
+        while (i + 3 < buf.length){
+          if (buf[i]===0&&buf[i+1]===0&&buf[i+2]===0&&buf[i+3]===1){
+            let j = i + 4
+            while (j + 3 < buf.length && !(buf[j]===0&&buf[j+1]===0&&buf[j+2]===0&&buf[j+3]===1)) j++
+            if (j + 3 >= buf.length) j = buf.length
+            out.push(buf.slice(i+4, j))
+            i = j
+          } else {
+            i++
+          }
+        }
+        return out
+      }
+      function toAvcc(nals){
+        const total = nals.reduce((s,n)=>s+4+n.length,0)
+        const out = new Uint8Array(total)
+        let off = 0
+        for (const n of nals){
+          out[off] = (n.length>>>24)&0xff
+          out[off+1] = (n.length>>>16)&0xff
+          out[off+2] = (n.length>>>8)&0xff
+          out[off+3] = (n.length)&0xff
+          out.set(n, off+4)
+          off += 4 + n.length
+        }
+        return out
+      }
+      function buildAvcC(sps, pps){
+        const profile = sps[1]
+        const compat = sps[2]
+        const level = sps[3]
+        const spsLen = sps.length
+        const ppsLen = pps.length
+        const out = new Uint8Array(7 + 2 + spsLen + 1 + 2 + ppsLen)
+        let o = 0
+        out[o++] = 1 // configurationVersion
+        out[o++] = profile
+        out[o++] = compat
+        out[o++] = level
+        out[o++] = 0xff // lengthSizeMinusOne with reserved bits
+        out[o++] = 0xe1 // numOfSPS (1) with reserved bits
+        out[o++] = (spsLen>>>8)&0xff
+        out[o++] = spsLen&0xff
+        out.set(sps, o); o += spsLen
+        out[o++] = 1 // numOfPPS
+        out[o++] = (ppsLen>>>8)&0xff
+        out[o++] = ppsLen&0xff
+        out.set(pps, o)
+        return out
+      }
+      function dimsFromSps(sps){
+        function removeEPB(d){ const out=[]; for(let i=0;i<d.length;i++){ if(i+2<d.length && d[i]===0&&d[i+1]===0&&d[i+2]===3){ out.push(0,0); i+=2; } else { out.push(d[i]) } } return new Uint8Array(out) }
+        const rbsp = removeEPB(sps.slice(1))
+        let bit=0; function readBits(n){ let v=0; for(let i=0;i<n;i++){ const b=(rbsp[bit>>3]>>(7-(bit&7)))&1; v=(v<<1)|b; bit++ } return v }
+        function readUE(){ let zeros=0; while(true){ const b=(rbsp[bit>>3]>>(7-(bit&7)))&1; bit++; if(b===0){ zeros++; } else { break } } const info= zeros? readBits(zeros):0; return (1<<zeros)-1+info }
+        if (rbsp.length<4) return null
+        readBits(8); readBits(8); readBits(8); readUE()
+        const pic_order_cnt_type = readUE(); if(pic_order_cnt_type===0){ readUE() } else if(pic_order_cnt_type===1){ readBits(1); readUE(); readUE(); const n=readUE(); for(let i=0;i<n;i++){ readUE() } }
+        readUE(); readBits(1)
+        const pic_width_in_mbs_minus1 = readUE()
+        const pic_height_in_map_units_minus1 = readUE()
+        const frame_mbs_only_flag = readBits(1)
+        if (frame_mbs_only_flag===0) readBits(1)
+        readBits(1)
+        const frame_cropping_flag = readBits(1)
+        let cropLeft=0,cropRight=0,cropTop=0,cropBottom=0
+        if (frame_cropping_flag){ cropLeft=readUE(); cropRight=readUE(); cropTop=readUE(); cropBottom=readUE() }
+        const width = (pic_width_in_mbs_minus1+1)*16 - (cropLeft+cropRight)*2
+        const height = (pic_height_in_map_units_minus1+1)*16*(2 - frame_mbs_only_flag) - (cropTop+cropBottom)*2
+        return { w: width, h: height }
+      }
+      function codecFromSps(sps){
+        if (!sps || sps.length < 4) return null
+        const hex = n=>n.toString(16).toUpperCase().padStart(2,'0')
+        return 'avc1.' + hex(sps[1]) + hex(sps[2]) + hex(sps[3])
+      }
+      function concat(a,b){
+        const out = new Uint8Array(a.length+b.length)
+        out.set(a,0); out.set(b,a.length)
+        return out
+      }
+
+      document.getElementById('stop').onclick = () => {
+        stopRender()
+        log('stop clicked')
+        fetch('/device/'+id+'/stop', { method:'POST' }).catch(e=>log('stop error ' + e.message))
+      }
+
+      canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect()
+        const x = (e.clientX - rect.left) / rect.width
+        const y = (e.clientY - rect.top) / rect.height
+        const payload = JSON.stringify({ type:'touch', x, y })
+        ws.send(new Blob([payload]))
+      })
+      window.addEventListener('keydown', (e) => {
+        const payload = JSON.stringify({ type:'key', key:e.key })
+        ws.send(new Blob([payload]))
+      })
+      function log(t){ try { console.log('[viewer]', t) } catch (_) {} try { const el = document.getElementById('log'); const p = document.createElement('div'); p.textContent = typeof t==='string'?t:JSON.stringify(t); el.appendChild(p); el.scrollTop = el.scrollHeight } catch (_) {} }
+      function updateDiag(){
+        try {
+          const msState = mediaSource.readyState
+          const sbState = sourceBuffer ? (sourceBuffer.updating ? 'updating' : 'ready') : 'none'
+          let br = []
+          if (sourceBuffer && sourceBuffer.buffered) {
+            for (let i=0;i<sourceBuffer.buffered.length;i++) br.push([sourceBuffer.buffered.start(i), sourceBuffer.buffered.end(i)])
+          }
+          const vs = videoEl.readyState
+          const ct = isNaN(videoEl.currentTime) ? 0 : Math.round(videoEl.currentTime*1000)/1000
+          const txt = 'mode '+(mode||'')+' codec '+(codecText||'')+' ms '+msState+' sb '+sbState+' ranges '+JSON.stringify(br)+' vs '+vs+' t '+ct
+          const el = document.getElementById('diag'); el.textContent = txt
+        } catch(_){ }
+      }
+
+      let prev = null
+      async function refreshStats(){
+        try {
+          const dbg = await fetch('/debug').then(r=>r.json())
+          const info = dbg[id]
+          if (!info) return
+          const c = info.counters || { videoBytes:0, controlBytes:0 }
+          if (!prev) prev = c
+          const vbps = Math.max(0, c.videoBytes - (prev.videoBytes||0))
+          const cbps = Math.max(0, c.controlBytes - (prev.controlBytes||0))
+          prev = c
+          const s = document.getElementById('stats')
+          s.textContent = 'viewers '+(info.viewers||0)+' • pipeline '+(info.pipeline||'annexb')+' • video '+formatBytes(vbps)+'/s • control '+formatBytes(cbps)+'/s'
+        } catch(_){ }
+      }
+      function formatBytes(n){
+        const units = ['B','KB','MB','GB']
+        let i = 0, v = n
+        while (v >= 1024 && i < units.length-1){ v/=1024; i++ }
+        return (i ? v.toFixed(1) : v|0) + ' ' + units[i]
+      }
+      setInterval(refreshStats, 1000)
+
+      function extractAvcCodec(init){
+        try {
+          const c = findBoxDeep(init, 'avcC')
+          if (c) {
+            const profile = c[8]
+            const compat = c[9]
+            const level = c[10]
+            const hex = (n)=> n.toString(16).toUpperCase().padStart(2,'0')
+            return 'avc1.' + hex(profile) + hex(compat) + hex(level)
+          }
+        } catch (_) {}
+        return null
+      }
+      function findBox(buf, name){
+        let off = 0
+        while (off + 8 <= buf.length){
+          const size = (buf[off]<<24)|(buf[off+1]<<16)|(buf[off+2]<<8)|buf[off+3]
+          const type = String.fromCharCode(buf[off+4],buf[off+5],buf[off+6],buf[off+7])
+          if (size < 8 || off + size > buf.length) break
+          if (type === name) return buf.slice(off, off+size)
+          off += size
+        }
+        return null
+      }
+      function findBoxDeep(buf, name){
+        function iter(b){
+          let off = 0
+          while (off + 8 <= b.length){
+            const size = (b[off]<<24)|(b[off+1]<<16)|(b[off+2]<<8)|b[off+3]
+            const type = String.fromCharCode(b[off+4],b[off+5],b[off+6],b[off+7])
+            if (size < 8 || off + size > b.length) break
+            const box = b.slice(off, off+size)
+            if (type === name) return box
+            const found = iter(box)
+            if (found) return found
+            off += size
+          }
+          return null
+        }
+        return iter(buf)
+      }
+      function isInit(buf){ return !!findBox(buf, 'moov') }
+      function resetPlayer(){
+        try { stopRender() } catch(_){ }
+        queue = []
+        initialized = false
+        sourceBuffer = null
+        msOpened = false
+        try { videoEl.pause() } catch(_){}
+        try { videoEl.src = '' } catch(_){}
+        try { document.body.removeChild(videoEl) } catch(_){}
+        try { if (window._decoder) { window._decoder.close(); window._decoder = null } } catch(_){}
+        try { window._configured = false; window._sps = null; window._pps = null; window._ts = 0; window._haveKey = false } catch(_){}
+        mediaSource = new MediaSource()
+        videoEl = document.createElement('video')
+        videoEl.muted = true
+        videoEl.autoplay = true
+        videoEl.playsInline = true
+        videoEl.style.display = 'none'
+        document.body.appendChild(videoEl)
+        videoEl.src = URL.createObjectURL(mediaSource)
+        mediaSource.addEventListener('sourceopen', () => { msOpened = true; log('media source open') })
+      }
+    </script>
+  </body>
+</html>

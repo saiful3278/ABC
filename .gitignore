@@ -1,0 +1,24 @@
+# General
+.DS_Store
+Thumbs.db
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node.js (backend)
+node_modules/
+npm-debug.log
+yarn-error.log
+.env
+
+# Android (Deamon_apk) - These are also handled by nested .gitignore, but adding here for visibility
+Deamon_apk/build/
+Deamon_apk/.gradle/
+Deamon_apk/local.properties
+
+# Vercel
+.vercel/

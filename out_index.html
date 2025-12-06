@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Devices</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      ul { list-style: none; padding: 0; }
+      li { margin: .5rem 0; }
+      a { text-decoration: none; color: #0b5; }
+      button { margin-left: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Active Devices</h1>
+    <ul>
+      
+    </ul>
+    <script>
+      async function start(id){
+        await fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bitrate: 8000000, audio: true }) })
+      }
+      async function stop(id){
+        await fetch('/device/'+id+'/stop', { method:'POST' })
+      }
+    </script>
+  </body>
+</html>
+
+
