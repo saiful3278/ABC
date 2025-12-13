@@ -19,7 +19,8 @@
       .kv { font-size: 13px; opacity: .9; display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; }
       .kv div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      a { text-decoration: none; color: #4fd688; font-weight: 600; }
+      a { text-decoration: none; color: #4fd688; font-weight: 600; font-size: 14px; }
+      a:hover { text-decoration: underline; }
       button { font-size: 14px; padding: 8px 12px; border-radius: 10px; border: none; background: #2a7; color: #041; cursor: pointer; }
       button.stop { background: #e55; color: #210; }
       button.secondary { background: #27a; color: #041; }
@@ -42,8 +43,47 @@
       <div class="summary">If empty, open test viewer: <a href="/view/test">/view/test</a></div>
     </div>
     <script>
+      let currentDevices = []
+      function populateSelector(devices){
+        currentDevices = devices
+        const sel = document.getElementById('deviceSelect')
+        if (!sel) return
+        const chosen = sel.value
+        sel.innerHTML = ''
+        for (const id of devices){
+          const opt = document.createElement('option')
+          opt.value = id
+          opt.textContent = id
+          sel.appendChild(opt)
+        }
+        if (devices.includes(chosen)) {
+            sel.value = chosen
+        } else if (devices.length > 0) {
+            sel.value = devices[0]
+            connectTerminal()
+        }
+      }
+      async function runShell(){
+        const sel = document.getElementById('deviceSelect')
+        const cmd = document.getElementById('cmdInput').value
+        if (!sel || !sel.value || !cmd) return
+        try {
+          const r = await fetch('/device/'+sel.value+'/shell', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ command: cmd }) })
+          if (r.ok) alert('Sent')
+        } catch(_){}
+      }
+      async function startSelected(){
+        const sel = document.getElementById('deviceSelect')
+        if (!sel || !sel.value) return
+        try { await fetch('/device/'+sel.value+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bitrate: 4000000, audio: false }) }) } catch(_){}
+      }
+      async function stopSelected(){
+        const sel = document.getElementById('deviceSelect')
+        if (!sel || !sel.value) return
+        try { await fetch('/device/'+sel.value+'/stop', { method:'POST' }) } catch(_){}
+      }
       async function start(id){
-        try { await fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bitrate: 8000000, audio: true }) }) } catch(_){ }
+        try { await fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bitrate: 4000000, audio: false }) }) } catch(_){ }
       }
       async function stop(id){
         try { await fetch('/device/'+id+'/stop', { method:'POST' }) } catch(_){ }
@@ -52,12 +92,68 @@
       async function stopAll(){ try { await fetch('/stop', { method:'POST' }) } catch(_){ } }
 
       let prev = {}
+      let termWS = null
+      function appendLine(s){
+        const out = document.getElementById('termOut')
+        const span = document.createElement('span')
+        span.textContent = s
+        out.appendChild(span)
+        const term = document.getElementById('terminal')
+        term.scrollTop = term.scrollHeight
+      }
+      function clearTerminal(){
+        const out = document.getElementById('termOut')
+        out.innerHTML = ''
+      }
+      function connectTerminal(){
+        const sel = document.getElementById('deviceSelect')
+        if (!sel || !sel.value) return
+        disconnectTerminal()
+        try {
+          const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+          const wsUrl = proto + '//' + location.host + '/ws'
+          termWS = new WebSocket(wsUrl)
+          termWS.onopen = () => {
+            termWS.send(JSON.stringify({ type:'viewer', id: sel.value }))
+            appendLine('[connected to '+sel.value+']\n')
+          }
+          termWS.onmessage = (ev) => {
+            if (typeof ev.data === 'string') {
+              try {
+                const obj = JSON.parse(ev.data)
+                if (obj && obj.type === 'status' && obj.source === 'apk') {
+                  appendLine(obj.msg || '')
+                }
+              } catch(_){}
+            }
+          }
+          termWS.onclose = () => appendLine('[disconnected]\n')
+          termWS.onerror = () => appendLine('[error]\n')
+        } catch(_){}
+      }
+      function disconnectTerminal(){
+        try { termWS && termWS.close() } catch(_){}
+        termWS = null
+      }
+      async function runShell(){
+        const sel = document.getElementById('deviceSelect')
+        const cmd = document.getElementById('cmdInput').value
+        if (!sel || !sel.value || !cmd) return
+        appendLine('$ ' + cmd + '\n')
+        if (termWS && termWS.readyState === 1) {
+          try { termWS.send(JSON.stringify({ type:'shell', command: cmd })) } catch(_){}
+        } else {
+          try { await fetch('/device/'+sel.value+'/shell', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ command: cmd }) }) } catch(_){}
+        }
+        document.getElementById('cmdInput').value = ''
+      }
       async function refresh(){
         let devices = []
         let debug = {}
         try {
           const d = await fetch('/devices').then(r=>r.json())
           devices = d.devices || []
+          populateSelector(devices)
         } catch(_){ }
         try {
           debug = await fetch('/debug').then(r=>r.json())
@@ -97,7 +193,8 @@
           const actions = document.createElement('div')
           actions.className = 'actions'
           actions.innerHTML =
-            '<a href="/view/'+id+'">Open</a>'+
+            '<a href="/view/'+id+'">Open (fMP4)</a>'+
+            '<a href="/view-webcodecs/'+id+'">Open (WebCodecs)</a>'+
             '<button onclick="start(\''+id+'\')">Start</button>'+
             '<button class="stop" onclick="stop(\''+id+'\')">Stop</button>'
           card.appendChild(actions)
@@ -112,10 +209,38 @@
         while (v >= 1024 && i < units.length-1){ v/=1024; i++ }
         return (i ? v.toFixed(1) : v|0) + ' ' + units[i]
       }
+      
+      let termCollapsed = false
+      function toggleTerm(){
+        termCollapsed = !termCollapsed
+        const wrap = document.getElementById('termWrap')
+        const term = document.getElementById('terminal')
+        if (termCollapsed) {
+          term.style.display = 'none'
+          wrap.style.height = 'auto'
+        } else {
+          term.style.display = 'block'
+          wrap.style.height = 'auto'
+        }
+      }
       refresh()
       setInterval(refresh, 1000)
     </script>
-  </body>
-</html>
+    <div id="termWrap" style="position: fixed; right: 20px; bottom: 20px; width: 600px; max-width: 90vw; background: #000; border: 1px solid #333; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; overflow: hidden; font-family: 'Courier New', Courier, monospace; transition: height 0.2s;">
+      <div style="background: #1a1a1a; padding: 6px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333; cursor: pointer;" onclick="toggleTerm()">
+        <div style="width: 10px; height: 10px; background: #ff5f56; border-radius: 50%;"></div>
+        <div style="width: 10px; height: 10px; background: #ffbd2e; border-radius: 50%;"></div>
+        <div style="width: 10px; height: 10px; background: #27c93f; border-radius: 50%;"></div>
+        <span style="font-size: 12px; color: #888; margin-left: 8px;">Terminal</span>
+        <select id="deviceSelect" style="margin-left: auto; background: #333; color: #fff; border: none; padding: 2px 6px; border-radius: 4px; font-size: 12px;" onclick="event.stopPropagation(); connectTerminal()"></select>
+      </div>
+      <div id="terminal" style="height: 300px; padding: 10px; overflow-y: auto; color: #0f0; font-size: 13px; line-height: 1.4; white-space: pre-wrap; word-break: break-all;">
+        <div id="termOut" style="display: inline;"></div>
+        <div style="display: flex; margin-top: 4px;">
+          <span style="color: #0f0; margin-right: 6px;">$</span>
+          <input id="cmdInput" style="flex: 1; background: transparent; border: none; color: #fff; outline: none; font-family: inherit;" onkeydown="if(event.key==='Enter'){runShell()}" />
+        </div>
+      </div>
+    </div>
   </body>
 </html>

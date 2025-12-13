@@ -19,9 +19,9 @@
       #statusbar .dot.ok { background:#39d98a; }
       #stats { font-size:12px; opacity:.8; }
       #error { width: 100%; max-width: 720px; color: #210; background: #e55; border-radius: 8px; padding: 8px 10px; display: none; }
-      canvas { width: min(96vw, 360px); max-width: 360px; aspect-ratio: 9 / 16; background: #000; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
-      #log { width: min(96vw, 360px); max-height: 30vh; overflow: auto; font-size: 12px; background: #111; border-radius: 10px; padding: 8px 10px; opacity: .9; }
-      #diag { width: min(96vw, 360px); font-size: 12px; opacity: .9; }
+      canvas { width: min(96vw, 720px); max-width: 720px; aspect-ratio: 9 / 16; background: #000; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+      #log { width: min(96vw, 600px); max-height: 30vh; overflow: auto; font-size: 12px; background: #111; border-radius: 10px; padding: 8px 10px; opacity: .9; }
+      #diag { width: min(96vw, 600px); font-size: 12px; opacity: .9; }
       @media (max-width: 600px) {
         #controls { grid-template-columns: 1fr; }
         #controls button { font-size: 16px; padding: 12px; }
@@ -30,9 +30,9 @@
         #log { width: min(96vw, 360px); max-height: 34vh; }
       }
       @media (orientation: landscape) {
-        canvas { width: min(94vw, 640px, 70vh); aspect-ratio: 16 / 9; }
-        #log { width: min(94vw, 640px, 70vh); }
-        #diag { width: min(94vw, 640px, 70vh); }
+        canvas { width: min(94vw, 1280px, 85vh); aspect-ratio: 16 / 9; }
+        #log { width: min(94vw, 1280px, 85vh); }
+        #diag { width: min(94vw, 1280px, 85vh); }
       }
     </style>
   </head>
@@ -45,6 +45,7 @@
         <div id="error"></div>
       </div>
       <div id="controls">
+        <button id="start">Start Stream</button>
         <button id="stop">Stop Stream</button>
       </div>
       <canvas id="canvas"></canvas>
@@ -52,7 +53,8 @@
     </div>
     <script>
       const id = '<%= id %>'
-      const ws = new WebSocket('ws://' + location.host + '/ws')
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const ws = new WebSocket(protocol + '//' + location.host + '/ws')
       ws.binaryType = 'arraybuffer'
       ws.addEventListener('open', () => {
         setStatus('Connected')
@@ -60,8 +62,7 @@
         log('ws open')
         ws.send(JSON.stringify({ type: 'viewer', id }))
         try { ws.send(JSON.stringify({ type:'mode', id, mode:'fmp4' })) } catch(_){ }
-        try { ws.send(JSON.stringify({ type:'request_init', id })) } catch(_){ }
-        try { fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bitrate: 1500000, maxSize: 540, maxFps: 60, audio: false }) }) } catch(_){ }
+            // request init once on sourceopen; we already requested at ws open
       })
       ws.addEventListener('error', (e) => { log('ws error ' + e.message) })
       ws.addEventListener('close', () => { setWs(false); setStatus('Disconnected'); log('ws close') })
@@ -70,7 +71,7 @@
         if (typeof ev.data === 'string') {
           try {
             const msg = JSON.parse(ev.data)
-            if (msg.type === 'mode') { mode = 'fmp4'; setStatus('Mode: fmp4'); log('mode fmp4') }
+            if (msg.type === 'mode' && msg.mode) { mode = msg.mode; setStatus('Mode: ' + msg.mode); log('mode ' + msg.mode) }
           } catch (_) {}
         }
       })
@@ -85,8 +86,7 @@
       document.body.appendChild(videoEl)
       videoEl.src = URL.createObjectURL(mediaSource)
       videoEl.addEventListener('loadedmetadata', () => { updateAspectFromVideo() })
-      function resizeCanvas(){ const r = canvas.getBoundingClientRect(); const dpr = window.devicePixelRatio||1; canvas.width = Math.floor(r.width*dpr); canvas.height = Math.floor(r.height*dpr) }
-      resizeCanvas()
+      
       const ctx = canvas.getContext('2d')
       let sourceBuffer = null
       let queue = []
@@ -94,6 +94,7 @@
       let rafId = null
       let msOpened = false
       let playStarted = false
+      let codecText = ''
       mediaSource.addEventListener('sourceopen', () => {
         msOpened = true
         try { mediaSource.duration = Infinity } catch(_){ }
@@ -165,10 +166,14 @@
         }
       })
       function renderFromVideo(){
-        ctx.drawImage(videoEl,0,0,canvas.width,canvas.height)
+        if (videoEl.videoWidth && (canvas.width !== videoEl.videoWidth || canvas.height !== videoEl.videoHeight)) {
+          canvas.width = videoEl.videoWidth
+          canvas.height = videoEl.videoHeight
+        }
+        ctx.drawImage(videoEl,0,0)
         rafId = requestAnimationFrame(renderFromVideo)
       }
-      function updateAspectFromVideo(){ const w = videoEl.videoWidth||0, h = videoEl.videoHeight||0; if (w && h) { canvas.style.aspectRatio = w + ' / ' + h; resizeCanvas() } }
+      function updateAspectFromVideo(){ const w = videoEl.videoWidth||0, h = videoEl.videoHeight||0; if (w && h) { canvas.style.aspectRatio = w + ' / ' + h; } }
       function stopRender(){
         if (rafId){ cancelAnimationFrame(rafId); rafId = null }
       }
@@ -181,7 +186,7 @@
         updateAspectFromVideo()
         log('video playing')
       })
-      window.addEventListener('resize', () => { resizeCanvas(); log('resize '+JSON.stringify({w:canvas.width,h:canvas.height})) })
+      window.addEventListener('resize', () => { log('resize '+JSON.stringify({w:canvas.width,h:canvas.height})) })
       ws.addEventListener('close', () => { stopRender(); setStatus('Disconnected') })
       function setStatus(t){ document.getElementById('status').textContent = t; log('status ' + t) }
       function setWs(ok){ const d = document.getElementById('wsdot'); if (d) d.className = 'dot' + (ok ? ' ok' : '') }
@@ -282,22 +287,89 @@
         return out
       }
 
+      document.getElementById('start').onclick = () => {
+        log('start clicked')
+        fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) }).catch(e=>log('start error ' + e.message))
+      }
+
       document.getElementById('stop').onclick = () => {
         stopRender()
         log('stop clicked')
         fetch('/device/'+id+'/stop', { method:'POST' }).catch(e=>log('stop error ' + e.message))
       }
 
-      canvas.addEventListener('click', (e) => {
+      // Input Handling
+      function sendTouch(action, e) {
+        if (ws.readyState !== WebSocket.OPEN) return
         const rect = canvas.getBoundingClientRect()
-        const x = (e.clientX - rect.left) / rect.width
-        const y = (e.clientY - rect.top) / rect.height
-        const payload = JSON.stringify({ type:'touch', x, y })
-        ws.send(new Blob([payload]))
+        const ratioX = (e.clientX - rect.left) / rect.width
+        const ratioY = (e.clientY - rect.top) / rect.height
+        const w = canvas.width
+        const h = canvas.height
+        const x = Math.round(ratioX * w)
+        const y = Math.round(ratioY * h)
+        
+        const buf = new ArrayBuffer(32)
+        const view = new DataView(buf)
+        view.setUint8(0, 2) // INJECT_TOUCH_EVENT
+        view.setUint8(1, action) // 0:down, 1:up, 2:move
+        view.setBigUint64(2, 0n) // pointerId
+        view.setInt32(10, x)
+        view.setInt32(14, y)
+        view.setUint16(18, w)
+        view.setUint16(20, h)
+        view.setUint16(22, action === 1 ? 0 : 65535) // pressure
+        view.setInt32(24, action === 1 ? 0 : 1)
+        view.setInt32(28, action === 1 ? 0 : 1)
+        ws.send(buf)
+      }
+
+      canvas.addEventListener('mousedown', (e) => {
+        sendTouch(0, e) // DOWN
+        const onMove = (ev) => sendTouch(2, ev) // MOVE
+        const onUp = (ev) => {
+          sendTouch(1, ev) // UP
+          document.removeEventListener('mousemove', onMove)
+          document.removeEventListener('mouseup', onUp)
+        }
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onUp)
       })
+      
+      // Prevent context menu on right click
+      canvas.addEventListener('contextmenu', (e) => { e.preventDefault() })
+
+      const KEY_MAP = {
+        'Enter': 66, 'Backspace': 67, 'Escape': 111, 'Home': 3, 'ArrowUp': 19, 'ArrowDown': 20, 'ArrowLeft': 21, 'ArrowRight': 22,
+        'a': 29, 'b': 30, 'c': 31, 'd': 32, 'e': 33, 'f': 34, 'g': 35, 'h': 36, 'i': 37, 'j': 38, 'k': 39, 'l': 40, 'm': 41,
+        'n': 42, 'o': 43, 'p': 44, 'q': 45, 'r': 46, 's': 47, 't': 48, 'u': 49, 'v': 50, 'w': 51, 'x': 52, 'y': 53, 'z': 54,
+        ' ': 62, '0': 7, '1': 8, '2': 9, '3': 10, '4': 11, '5': 12, '6': 13, '7': 14, '8': 15, '9': 16
+      }
+      
       window.addEventListener('keydown', (e) => {
-        const payload = JSON.stringify({ type:'key', key:e.key })
-        ws.send(new Blob([payload]))
+        const code = KEY_MAP[e.key] || KEY_MAP[e.key.toLowerCase()]
+        if (!code) return
+        const buf = new ArrayBuffer(14)
+        const view = new DataView(buf)
+        view.setUint8(0, 0) // INJECT_KEYCODE
+        view.setUint8(1, 0) // DOWN
+        view.setInt32(2, code)
+        view.setInt32(6, 0) // repeat
+        view.setInt32(10, 0) // meta
+        ws.send(buf)
+      })
+      
+      window.addEventListener('keyup', (e) => {
+        const code = KEY_MAP[e.key] || KEY_MAP[e.key.toLowerCase()]
+        if (!code) return
+        const buf = new ArrayBuffer(14)
+        const view = new DataView(buf)
+        view.setUint8(0, 0) // INJECT_KEYCODE
+        view.setUint8(1, 1) // UP
+        view.setInt32(2, code)
+        view.setInt32(6, 0)
+        view.setInt32(10, 0)
+        ws.send(buf)
       })
       function log(t){ try { console.log('[viewer]', t) } catch (_) {} try { const el = document.getElementById('log'); const p = document.createElement('div'); p.textContent = typeof t==='string'?t:JSON.stringify(t); el.appendChild(p); el.scrollTop = el.scrollHeight } catch (_) {} }
       function updateDiag(){
@@ -379,7 +451,7 @@
         }
         return iter(buf)
       }
-      function isInit(buf){ return !!findBox(buf, 'moov') }
+      function isInit(buf){ return !!findBox(buf, 'ftyp') && !!findBox(buf, 'moov') }
       function resetPlayer(){
         try { stopRender() } catch(_){ }
         queue = []

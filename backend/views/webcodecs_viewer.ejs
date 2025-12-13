@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebCodecs Viewer <%= id %></title>
+    <style>
+      html, body { height: 100%; }
+      body { margin: 0; background: #0d0f14; color: #e7e9ee; font-family: monospace; }
+      .container { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; gap: 12px; padding: 12px; }
+      #header { width: 100%; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+      #controls { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      #controls button { font-size: 16px; padding: 12px; border-radius: 10px; border: none; background: #2a7; color: #041; cursor: pointer; width: 100%; }
+      #controls button#stop { background: #e55; color: #210; }
+      #statusbar { display:flex; gap:8px; align-items:center; font-size:13px; opacity:.9; }
+      #statusbar .dot { width:10px; height:10px; border-radius:50%; background:#e55353; }
+      #statusbar .dot.ok { background:#39d98a; }
+      #stats { font-size:12px; opacity:.8; }
+      #error { width: 100%; max-width: 720px; color: #210; background: #e55; border-radius: 8px; padding: 8px 10px; display: none; }
+      canvas { width: min(96vw, 720px); max-width: 720px; aspect-ratio: 9 / 16; background: #000; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+      #log { width: min(96vw, 720px); max-height: 30vh; overflow: auto; font-size: 12px; background: #111; border-radius: 10px; padding: 8px 10px; opacity: .9; }
+      @media (orientation: landscape) {
+        canvas { width: min(94vw, 1280px, 85vh); aspect-ratio: 16 / 9; }
+        #log { width: min(94vw, 1280px, 85vh); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div id="header">
+        <div id="statusbar"><span class="dot" id="wsdot"></span><span>Viewer <%= id %></span><span id="status">Disconnected</span></div>
+        <div id="controls">
+          <button id="start">Start Stream</button>
+          <button id="stop">Stop Stream</button>
+        </div>
+        <div id="stats"></div>
+        <div id="error"></div>
+      </div>
+      <canvas id="canvas"></canvas>
+      <div id="log"></div>
+    </div>
+    <script>
+      const id = '<%= id %>'
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const ws = new WebSocket(protocol + '//' + location.host + '/ws')
+      ws.binaryType = 'arraybuffer'
+      
+      const canvas = document.getElementById('canvas')
+      const ctx = canvas.getContext('2d')
+      
+      // State
+      let decoder = null
+      let frameQueue = []
+      let pendingChunks = [] // For accumulating fragmented NALs
+      let hasConfig = false
+      let sps = null
+      let pps = null
+      let frameCount = 0
+      
+      function log(t){ try { console.log('[viewer]', t) } catch (_) {} try { const el = document.getElementById('log'); const p = document.createElement('div'); p.textContent = typeof t==='string'?t:JSON.stringify(t); el.appendChild(p); el.scrollTop = el.scrollHeight } catch (_) {} }
+      function setStatus(t){ document.getElementById('status').textContent = t; }
+      function setWs(ok){ const d = document.getElementById('wsdot'); if (d) d.className = 'dot' + (ok ? ' ok' : '') }
+      function setError(t){ const el = document.getElementById('error'); el.textContent = t; el.style.display = 'block' }
+
+      // WebCodecs Setup
+      function initDecoder() {
+        if (decoder) return
+        if (!window.VideoDecoder) { setError('WebCodecs API not supported'); return }
+        
+        decoder = new VideoDecoder({
+          output: (frame) => {
+            frameCount++
+            // Render immediately (simple queue)
+            // In a real player you'd sync to audio or wall clock
+            if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+              canvas.width = frame.displayWidth
+              canvas.height = frame.displayHeight
+              canvas.style.aspectRatio = frame.displayWidth + ' / ' + frame.displayHeight
+            }
+            ctx.drawImage(frame, 0, 0)
+            frame.close()
+            setStatus('Playing: ' + frameCount + ' frames')
+          },
+          error: (e) => {
+            setError('Decoder error: ' + e.message)
+            log('Decoder error: ' + e.message)
+            resetDecoder()
+          }
+        })
+        log('Decoder initialized')
+      }
+      
+      function resetDecoder() {
+        if (decoder) {
+          try {
+            if (decoder.state === 'configured') decoder.flush().catch(()=>{})
+          } catch(e){}
+          try { decoder.close() } catch(e){}
+          decoder = null
+        }
+        hasConfig = false
+        sps = null
+        pps = null
+        initDecoder()
+      }
+
+      function configureDecoder(sps, pps) {
+        if (!decoder || hasConfig) return
+        
+        // Build AVCC (AVCDecoderConfigurationRecord) for description
+        const avcc = buildAvcC(sps, pps)
+        
+        // Parse profile/level from SPS for codec string
+        // Profile: sps[1], Level: sps[3]
+        const profile = sps[1]
+        const level = sps[3]
+        const codec = 'avc1.' + toHex(profile) + '00' + toHex(level) // e.g. avc1.42001f
+        
+        try {
+          decoder.configure({
+            codec: codec,
+            description: avcc,
+            optimizeForLatency: true
+          })
+          hasConfig = true
+          log('Decoder configured: ' + codec)
+        } catch (e) {
+          setError('Config error: ' + e.message)
+        }
+      }
+
+      // NALU Parser
+      let buffer = new Uint8Array(0)
+      
+      function appendBuffer(chunk) {
+        const newBuf = new Uint8Array(buffer.length + chunk.length)
+        newBuf.set(buffer)
+        newBuf.set(chunk, buffer.length)
+        buffer = newBuf
+      }
+      
+      function processBuffer() {
+        // Find NAL start codes 00 00 00 01 or 00 00 01
+        // We will assume 00 00 00 01 for simplicity as scrcpy/ffmpeg usually outputs that
+        // But better to handle both.
+        
+        let offset = 0
+        while (offset < buffer.length) {
+          const nextStart = findStartCode(buffer, offset + 3) // optimize skip
+          if (nextStart === -1) {
+            // No more start codes, keep the remaining part in buffer (it might be start of next NAL)
+            // But we must be careful not to keep too much if stream is corrupted
+            if (buffer.length - offset > 1000000) {
+              // Safety flush
+              buffer = new Uint8Array(0)
+            } else {
+              buffer = buffer.slice(offset)
+            }
+            break
+          }
+          
+          // Found a NAL unit from offset to nextStart
+          const nalUnit = buffer.slice(offset, nextStart)
+          
+          // Remove start code emulation prevention bytes? 
+          // Raw NALs from network usually have them. Decoder expects them?
+          // WebCodecs expects RBSP or NAL? 
+          // Usually AVCC format stores NALs as is (with emulation bytes).
+          
+          // Strip start code (3 or 4 bytes)
+          let startLen = 0
+          if (nalUnit[0] === 0 && nalUnit[1] === 0) {
+             if (nalUnit[2] === 1) startLen = 3
+             else if (nalUnit[2] === 0 && nalUnit[3] === 1) startLen = 4
+          }
+          
+          if (startLen > 0) {
+            const payload = nalUnit.slice(startLen)
+            handleNal(payload)
+          }
+          
+          offset = nextStart
+        }
+      }
+      
+      function findStartCode(buf, from) {
+        for (let i = from; i < buf.length - 3; i++) {
+          if (buf[i] === 0 && buf[i+1] === 0) {
+            if (buf[i+2] === 1) return i
+            if (buf[i+2] === 0 && buf[i+3] === 1) return i
+          }
+        }
+        return -1
+      }
+      
+      function handleNal(nal) {
+        const type = nal[0] & 0x1f
+        
+        if (type === 7) { // SPS
+          sps = nal
+          log('Got SPS: ' + nal.length)
+          if (pps) configureDecoder(sps, pps)
+        } else if (type === 8) { // PPS
+          pps = nal
+          log('Got PPS: ' + nal.length)
+          if (sps) configureDecoder(sps, pps)
+        } else if (type === 1 || type === 5) { // Slice
+          if (!hasConfig && sps && pps) configureDecoder(sps, pps)
+          if (!hasConfig) return // Wait for config
+          
+          const isKey = (type === 5)
+          
+          // Prepare chunk for WebCodecs
+          // Needs to be in AVCC format (length prefixed)? 
+          // Or Annex B?
+          // The spec says for 'avc1', usage of EncodedVideoChunk depends on description.
+          // But generally `decoder.decode` expects the data format to match.
+          // If we provided `description` (AVCC), it expects AVCC formatted NALs (length-prefixed).
+          
+          const len = nal.length
+          const chunkData = new Uint8Array(4 + len)
+          const view = new DataView(chunkData.buffer)
+          view.setUint32(0, len, false) // Big Endian length
+          chunkData.set(nal, 4)
+          
+          try {
+            const chunk = new EncodedVideoChunk({
+              type: isKey ? 'key' : 'delta',
+              timestamp: frameCount * 16666, // Synthetic timestamp ~60fps
+              data: chunkData
+            })
+            decoder.decode(chunk)
+          } catch (e) {
+            console.error(e)
+            log('Decode error: ' + e.message)
+          }
+        }
+      }
+
+      // Helpers
+      function buildAvcC(sps, pps){
+        const profile = sps[1]
+        const compat = sps[2]
+        const level = sps[3]
+        const spsLen = sps.length
+        const ppsLen = pps.length
+        const out = new Uint8Array(7 + 2 + spsLen + 1 + 2 + ppsLen)
+        let o = 0
+        out[o++] = 1 // configurationVersion
+        out[o++] = profile
+        out[o++] = compat
+        out[o++] = level
+        out[o++] = 0xff // lengthSizeMinusOne | 0xFC = 3 bytes (size 4) -> 0xFF
+        out[o++] = 0xe1 // numOfSPS (1) | 0xE0
+        out[o++] = (spsLen>>>8)&0xff
+        out[o++] = spsLen&0xff
+        out.set(sps, o); o += spsLen
+        out[o++] = 1 // numOfPPS
+        out[o++] = (ppsLen>>>8)&0xff
+        out[o++] = ppsLen&0xff
+        out.set(pps, o)
+        return out
+      }
+      
+      function toHex(n) { return n.toString(16).toUpperCase().padStart(2, '0') }
+
+      // WS Events
+      ws.addEventListener('open', () => {
+        setStatus('Connected')
+        setWs(true)
+        log('ws open')
+        initDecoder()
+        
+        ws.send(JSON.stringify({ type: 'viewer', id }))
+        
+        // Request annexb mode (raw H.264)
+        setTimeout(() => {
+            ws.send(JSON.stringify({ type:'mode', id, mode:'annexb' }))
+            log('Requested annexb mode')
+        }, 100)
+      })
+      
+      ws.addEventListener('message', (ev) => {
+        if (typeof ev.data === 'string') {
+          // Control messages
+          try {
+             const msg = JSON.parse(ev.data)
+             if (msg.type === 'mode') log('Mode: ' + msg.mode)
+          } catch(e){}
+        } else if (ev.data instanceof ArrayBuffer) {
+          // Video Data
+          appendBuffer(new Uint8Array(ev.data))
+          processBuffer()
+        }
+      })
+      
+      ws.addEventListener('close', () => { setWs(false); setStatus('Disconnected'); log('ws close') })
+      ws.addEventListener('error', (e) => { log('ws error ' + e.message) })
+
+      document.getElementById('start').onclick = () => {
+        log('start clicked')
+        fetch('/device/'+id+'/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) }).catch(e=>log('start error ' + e.message))
+      }
+      
+      document.getElementById('stop').onclick = () => {
+        log('stop clicked')
+        fetch('/device/'+id+'/stop', { method:'POST' }).catch(e=>log('stop error ' + e.message))
+      }
+
+      // Input Handling
+      function sendTouch(action, e) {
+        if (ws.readyState !== WebSocket.OPEN) return
+        const rect = canvas.getBoundingClientRect()
+        const ratioX = (e.clientX - rect.left) / rect.width
+        const ratioY = (e.clientY - rect.top) / rect.height
+        const w = canvas.width
+        const h = canvas.height
+        const x = Math.round(ratioX * w)
+        const y = Math.round(ratioY * h)
+        
+        const buf = new ArrayBuffer(32)
+        const view = new DataView(buf)
+        view.setUint8(0, 2) // INJECT_TOUCH_EVENT
+        view.setUint8(1, action) // 0:down, 1:up, 2:move
+        view.setBigUint64(2, 0n) // pointerId
+        view.setInt32(10, x)
+        view.setInt32(14, y)
+        view.setUint16(18, w)
+        view.setUint16(20, h)
+        view.setUint16(22, action === 1 ? 0 : 65535) // pressure
+        view.setInt32(24, action === 1 ? 0 : 1)
+        view.setInt32(28, action === 1 ? 0 : 1)
+        ws.send(buf)
+      }
+
+      canvas.addEventListener('mousedown', (e) => {
+        sendTouch(0, e) // DOWN
+        const onMove = (ev) => sendTouch(2, ev) // MOVE
+        const onUp = (ev) => {
+          sendTouch(1, ev) // UP
+          document.removeEventListener('mousemove', onMove)
+          document.removeEventListener('mouseup', onUp)
+        }
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onUp)
+      })
+      
+      // Prevent context menu on right click
+      canvas.addEventListener('contextmenu', (e) => { e.preventDefault() })
+
+      const KEY_MAP = {
+        'Enter': 66, 'Backspace': 67, 'Escape': 111, 'Home': 3, 'ArrowUp': 19, 'ArrowDown': 20, 'ArrowLeft': 21, 'ArrowRight': 22,
+        'a': 29, 'b': 30, 'c': 31, 'd': 32, 'e': 33, 'f': 34, 'g': 35, 'h': 36, 'i': 37, 'j': 38, 'k': 39, 'l': 40, 'm': 41,
+        'n': 42, 'o': 43, 'p': 44, 'q': 45, 'r': 46, 's': 47, 't': 48, 'u': 49, 'v': 50, 'w': 51, 'x': 52, 'y': 53, 'z': 54,
+        ' ': 62, '0': 7, '1': 8, '2': 9, '3': 10, '4': 11, '5': 12, '6': 13, '7': 14, '8': 15, '9': 16
+      }
+      
+      window.addEventListener('keydown', (e) => {
+        const code = KEY_MAP[e.key] || KEY_MAP[e.key.toLowerCase()]
+        if (!code) return
+        const buf = new ArrayBuffer(14)
+        const view = new DataView(buf)
+        view.setUint8(0, 0) // INJECT_KEYCODE
+        view.setUint8(1, 0) // DOWN
+        view.setInt32(2, code)
+        view.setInt32(6, 0) // repeat
+        view.setInt32(10, 0) // meta
+        ws.send(buf)
+      })
+      
+      window.addEventListener('keyup', (e) => {
+        const code = KEY_MAP[e.key] || KEY_MAP[e.key.toLowerCase()]
+        if (!code) return
+        const buf = new ArrayBuffer(14)
+        const view = new DataView(buf)
+        view.setUint8(0, 0) // INJECT_KEYCODE
+        view.setUint8(1, 1) // UP
+        view.setInt32(2, code)
+        view.setInt32(6, 0)
+        view.setInt32(10, 0)
+        ws.send(buf)
+      })
+
+    </script>
+  </body>
+</html>

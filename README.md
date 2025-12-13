@@ -8,7 +8,7 @@ This project delivers a full remote Android screen-control system built around s
 
 ## Requirements
 - Rooted Android device with `su` available.
-- `scrcpy-server` jar on device at `/data/local/tmp/scrcpy-server-v3.3.3`.
+- `scrcpy-server` jar on device at `/data/local/tmp/scrcpy-server-v3.3.3` (copied from APK files).
 - Cleartext network allowed for development (Android Manifest includes network security config). For production, use TLS (`wss://`).
 - Backend: Node.js 18+ and optionally FFmpeg on PATH for fMP4 packaging.
 - Browser: Modern Chrome recommended (MSE supported; WebCodecs used as fallback).
@@ -16,7 +16,7 @@ This project delivers a full remote Android screen-control system built around s
 ## Component Details
 ### Android APK
 - Auto-start on boot via receiver and persistent foreground service.
-- WebSocket endpoint: `ws://100.112.8.35:22533/ws` (hardcoded; adjust if needed).
+- WebSocket endpoint: `wss://deamon-backend-production.up.railway.app/ws` (hardcoded; adjust if needed).
 - Commands:
   - `{"cmd":"start","bitrate":8000000,"audio":true}` → starts scrcpy-server via root.
   - `{"cmd":"stop"}` → stops scrcpy cleanly.
@@ -59,21 +59,21 @@ This project delivers a full remote Android screen-control system built around s
 1. In `backend` directory:
    - `npm install`
    - `node server.js`
-2. Visit `http://100.112.8.35:22533/` (or `http://localhost:22533/` from a normal browser window).
+2. Visit `https://deamon-backend-production.up.railway.app/` (or `http://localhost:22533/` from a normal browser window).
 3. Optional: install FFmpeg to enable `fmp4` packaging.
 
 ### Android APK
-1. Ensure `/data/local/tmp/scrcpy-server-v3.3.3` exists and is readable.
+1. Ensure `/system/scrcpy/scrcpy-server-v3.3.3` exists and is readable.
 2. Build and install the APK.
 3. Open the app; the service auto-starts and connects to the backend.
 4. Use the app or Web UI to start/stop scrcpy.
 
 ## Component URLs
-- Web UI: `http://100.112.8.35:22533/`
-- APK WebSocket: `ws://100.112.8.35:22533/ws`
-- Start (broadcast): `POST http://100.112.8.35:22533/start`
-- Stop (broadcast): `POST http://100.112.8.35:22533/stop`
-- Device-scoped: `POST http://100.112.8.35:22533/device/<id>/start`, `POST http://100.112.8.35:22533/device/<id>/stop`
+- Web UI: `https://deamon-backend-production.up.railway.app/`
+- APK WebSocket: `wss://deamon-backend-production.up.railway.app/ws`
+- Start (broadcast): `POST https://deamon-backend-production.up.railway.app/start`
+- Stop (broadcast): `POST https://deamon-backend-production.up.railway.app/stop`
+- Device-scoped: `POST https://deamon-backend-production.up.railway.app/device/<id>/start`, `POST https://deamon-backend-production.up.railway.app/device/<id>/stop`
 
 ## Troubleshooting
 - Web UI black screen:

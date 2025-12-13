@@ -1,6 +1,7 @@
 package com.sam.deamon_apk
 
 import android.app.Notification
+import androidx.core.app.NotificationCompat
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -22,7 +23,7 @@ import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
 class WebSocketService : Service() {
-    private val endpoint = "ws://100.112.8.35:22533/ws"
+    private val endpoint = "wss://deamon-backend-production.up.railway.app/ws"
     private val client = OkHttpClient.Builder().readTimeout(0, TimeUnit.MILLISECONDS).build()
     private var ws: WebSocket? = null
     private var bridge: ScrcpyBridge? = null
@@ -33,6 +34,7 @@ class WebSocketService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        copyAssets()
         createNotificationChannel()
         startForeground(1, notification("Starting"))
         ensureBridge()
@@ -40,9 +42,25 @@ class WebSocketService : Service() {
         connect()
     }
 
+    private fun copyAssets() {
+        try {
+            val filename = "scrcpy-server-v3.3.3"
+            val file = java.io.File(filesDir, filename)
+            if (!file.exists()) {
+                assets.open(filename).use { inputStream ->
+                    java.io.FileOutputStream(file).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> scope.launch { ensureBridge(); bridge?.start(4000000, 480, 40) }
+            ACTION_START -> scope.launch { ensureBridge(); bridge?.start(3500000, 720, 60) }
             ACTION_STOP -> scope.launch { bridge?.stop() }
         }
         return START_STICKY
@@ -95,6 +113,10 @@ class WebSocketService : Service() {
                                     val code = map[key] ?: 66
                                     scope.launch { runShell("input keyevent $code") }
                                 }
+                                "shell" -> {
+                                    val cmd = obj.optString("command", "")
+                                    if (cmd.isNotEmpty()) scope.launch { runShell(cmd) }
+                                }
                             }
                         }
                     }
@@ -123,11 +145,35 @@ class WebSocketService : Service() {
     }
 
     private fun runShell(cmd: String) {
-        try { ProcessBuilder("su","-c", cmd).start() } catch (_: Exception) {}
+        try {
+            val p = ProcessBuilder("su","-c", cmd).redirectErrorStream(true).start()
+            scope.launch {
+                try {
+                    val ins = p.inputStream
+                    val buf = ByteArray(4096)
+                    while (true) {
+                        val n = ins.read(buf)
+                        if (n <= 0) break
+                        val s = String(buf, 0, n)
+                        val msg = "{\"type\":\"status\",\"source\":\"apk\",\"level\":\"info\",\"msg\":\"" + s.replace("\n","\\n").replace("\"","\\\"") + "\"}"
+                        try { ws?.send(msg) } catch (_: Exception) {}
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
     }
 
     private fun ensureBridge() {
-        if (bridge == null) bridge = ScrcpyBridge({ bytes -> ws?.send(bytes) ?: Unit }, { text -> ws?.send(text) ?: Unit })
+        if (bridge == null) {
+            bridge = ScrcpyBridge(
+                { bytes -> 
+                    try { ws?.send(bytes) } catch (_: Exception) {}
+                }, 
+                { text -> 
+                    try { ws?.send(text) } catch (_: Exception) {}
+                }
+            )
+        }
     }
 
     private fun scheduleReconnect() {
@@ -147,11 +193,7 @@ class WebSocketService : Service() {
     }
 
     private fun notification(text: String): Notification {
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, "daemon")
-        } else {
-            Notification.Builder(this)
-        }
+        val builder = NotificationCompat.Builder(this, "daemon")
         return builder.setContentTitle("Remote Control")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
@@ -179,4 +221,3 @@ class WebSocketService : Service() {
         }
     }
 }
-

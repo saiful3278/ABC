@@ -1,12 +1,23 @@
 const express = require('express')
 const http = require('http')
+const https = require('https')
 const path = require('path')
 const { WebSocketServer } = require('ws')
 const { spawn } = require('child_process')
 const fs = require('fs')
 
 const app = express()
-const server = http.createServer(app)
+const SSL_KEY_PATH = process.env.SSL_KEY_PATH || ''
+const SSL_CERT_PATH = process.env.SSL_CERT_PATH || ''
+let server
+if (SSL_KEY_PATH && SSL_CERT_PATH) {
+  let key = null, cert = null
+  try { key = fs.readFileSync(SSL_KEY_PATH) } catch (e) {}
+  try { cert = fs.readFileSync(SSL_CERT_PATH) } catch (e) {}
+  server = (key && cert) ? https.createServer({ key, cert }, app) : http.createServer(app)
+} else {
+  server = http.createServer(app)
+}
 const wss = new WebSocketServer({ server, path: '/ws' })
 
 app.set('view engine', 'ejs')
@@ -31,7 +42,7 @@ app.post('/device/:id/start', (req, res) => {
   const d = devices.get(id)
   if (!d) return res.status(404).json({ error: 'not found' })
   const body = req.body || {}
-  const msg = JSON.stringify({ cmd: 'start', bitrate: body.bitrate || 4000000, maxSize: body.maxSize || 480, maxFps: body.maxFps || 40, audio: !!body.audio, command: 'su -c "cp /sdcard/Documents/scrcpy-server-v3.3.3 /data/local/tmp/ && chmod 755 /data/local/tmp/scrcpy-server-v3.3.3 && CLASSPATH=/data/local/tmp/scrcpy-server-v3.3.3 /system/bin/app_process64 / com.genymobile.scrcpy.Server 3.3.3 video_bit_rate=4000000 max_size=480 max_fps=40 raw_stream=true send_device_meta=false send_frame_meta=false send_dummy_byte=false send_codec_meta=false scid=00000000 audio=false" &' })
+  const msg = JSON.stringify({ cmd: 'start', bitrate: body.bitrate || 3500000, maxSize: body.maxSize || 720, maxFps: body.maxFps || 60, audio: !!body.audio, command: `cp /data/data/com.sam.deamon_apk/files/scrcpy-server-v3.3.3 /data/local/tmp/scrcpy-server-v3.3.3 && chmod 755 /data/local/tmp/scrcpy-server-v3.3.3 && CLASSPATH=/data/local/tmp/scrcpy-server-v3.3.3 setsid /system/bin/app_process64 / com.genymobile.scrcpy.Server 3.3.3 video_bit_rate=${body.bitrate || 3500000} max_size=${body.maxSize || 720} max_fps=${body.maxFps || 60} raw_stream=true send_device_meta=false send_frame_meta=false send_dummy_byte=false send_codec_meta=false scid=00000000 audio=${!!body.audio} clipboard_autosync=false` })
   try { d.ws.send(msg) } catch (e) {}
   res.json({ ok: true })
 })
@@ -44,9 +55,20 @@ app.post('/device/:id/stop', (req, res) => {
   res.json({ ok: true })
 })
 
+app.post('/device/:id/shell', (req, res) => {
+  const id = req.params.id
+  const d = devices.get(id)
+  if (!d) return res.status(404).json({ error: 'not found' })
+  const body = req.body || {}
+  const command = typeof body.command === 'string' ? body.command : ''
+  if (!command) return res.status(400).json({ error: 'invalid command' })
+  try { d.ws.send(JSON.stringify({ type: 'shell', command })) } catch (e) {}
+  res.json({ ok: true })
+})
+
 app.post('/start', (req, res) => {
   const body = req.body || {}
-  const msg = JSON.stringify({ cmd: 'start', bitrate: body.bitrate || 4000000, maxSize: body.maxSize || 480, maxFps: body.maxFps || 40, audio: !!body.audio, command: 'su -c "cp /sdcard/Documents/scrcpy-server-v3.3.3 /data/local/tmp/ && chmod 755 /data/local/tmp/scrcpy-server-v3.3.3 && CLASSPATH=/data/local/tmp/scrcpy-server-v3.3.3 /system/bin/app_process64 / com.genymobile.scrcpy.Server 3.3.3 video_bit_rate=4000000 max_size=480 max_fps=40 raw_stream=true send_device_meta=false send_frame_meta=false send_dummy_byte=false send_codec_meta=false scid=00000000 audio=false" &' })
+  const msg = JSON.stringify({ cmd: 'start', bitrate: body.bitrate || 3500000, maxSize: body.maxSize || 720, maxFps: body.maxFps || 60, audio: !!body.audio, command: `cp /data/data/com.sam.deamon_apk/files/scrcpy-server-v3.3.3 /data/local/tmp/scrcpy-server-v3.3.3 && chmod 755 /data/local/tmp/scrcpy-server-v3.3.3 && CLASSPATH=/data/local/tmp/scrcpy-server-v3.3.3 setsid /system/bin/app_process64 / com.genymobile.scrcpy.Server 3.3.3 video_bit_rate=${body.bitrate || 3500000} max_size=${body.maxSize || 720} max_fps=${body.maxFps || 60} raw_stream=true send_device_meta=false send_frame_meta=false send_dummy_byte=false send_codec_meta=false scid=00000000 audio=${!!body.audio} clipboard_autosync=false` })
   for (const [, d] of devices) { try { d.ws.send(msg) } catch (e) {} }
   res.json({ ok: true })
 })
@@ -59,6 +81,11 @@ app.post('/stop', (req, res) => {
 app.get('/view/:id', (req, res) => {
   const id = req.params.id
   res.render('viewer', { id })
+})
+
+app.get('/view-webcodecs/:id', (req, res) => {
+  const id = req.params.id
+  res.render('webcodecs_viewer', { id })
 })
 
 wss.on('connection', (ws) => {
@@ -107,13 +134,27 @@ wss.on('connection', (ws) => {
             if (!d.mux || !d.mux.enabled) {
               try { d.mux = createMux(id) } catch (e) { d.mux = { enabled:false, write(){}, close(){}, get init(){ return null }, get initVersion(){ return 0 } } }
             }
-            d.pipeline = 'fmp4'
-            const modeMsg = JSON.stringify({ type:'mode', mode:'fmp4' })
-            for (const v of d.viewers) safeSend(v, modeMsg, false)
-            if (d.mux.enabled && d.mux.init) {
-              for (const v of d.viewers) { safeSend(v, d.mux.init, true); d.viewerInitVersion.set(v, d.mux.initVersion) }
+            if (d.mux && d.mux.enabled) {
+              d.pipeline = 'fmp4'
+              const modeMsg = JSON.stringify({ type:'mode', mode:'fmp4' })
+              for (const v of d.viewers) safeSend(v, modeMsg, false)
+              if (d.mux.init) {
+                for (const v of d.viewers) { safeSend(v, d.mux.init, true); d.viewerInitVersion.set(v, d.mux.initVersion) }
+              }
+              try { console.log('mode switch to fmp4 for', id) } catch (e) {}
+            } else {
+              d.pipeline = 'annexb'
+              const modeMsg = JSON.stringify({ type:'mode', mode:'annexb' })
+              for (const v of d.viewers) safeSend(v, modeMsg, false)
+              try { console.log('mux unavailable; fallback to annexb for', id) } catch (e) {}
             }
-            try { console.log('mode switch to fmp4 for', id) } catch (e) {}
+            return
+          } else if (msg && msg.type === 'mode' && msg.mode === 'annexb') {
+            d.pipeline = 'annexb'
+            // notify viewers?
+            const modeMsg = JSON.stringify({ type:'mode', mode:'annexb' })
+            for (const v of d.viewers) safeSend(v, modeMsg, false)
+            try { console.log('mode switch to annexb for', id) } catch (e) {}
             return
           } else if (msg && msg.type === 'request_init') {
           if (d.mux.enabled && d.mux.init) {
@@ -125,6 +166,7 @@ wss.on('connection', (ws) => {
           }
         } catch (e) {}
       }
+      try { console.log('viewer control', id, Buffer.isBuffer(data) ? data.length : 0) } catch (e) {}
       safeSend(d.ws, data, isBinary)
     } else if (role === 'device') {
       if (!isBinary) {
@@ -133,6 +175,9 @@ wss.on('connection', (ws) => {
           const d = devices.get(id)
           if (d && msg && msg.type === 'status') {
             try { console.log('apk status', id, msg.level || 'info', msg.msg || '') } catch (e) {}
+            for (const v of d.viewers) {
+              try { v.send(JSON.stringify(msg)) } catch (e) {}
+            }
           }
         } catch (e) {}
         return
@@ -142,6 +187,7 @@ wss.on('connection', (ws) => {
       if (buf.length < 5) return
       const channel = buf.readUInt8(0)
       const length = buf.readUInt32BE(1)
+      if (5 + length > buf.length) return
       const payload = buf.slice(5, 5 + length)
       if (channel === 0) {
         const d = devices.get(id)
@@ -214,10 +260,10 @@ function findLocalFfmpeg(){
 }
 
 function createMux(id) {
-  const transcode = ((process.env.TRANSCODE || 'true') + '').toLowerCase() === 'true'
-  const scale = process.env.TRANSCODE_SCALE ? parseInt(process.env.TRANSCODE_SCALE,10) : 360
-  const fps = process.env.TRANSCODE_FPS ? parseInt(process.env.TRANSCODE_FPS,10) : 30
-  const bitrate = process.env.TRANSCODE_BITRATE ? (process.env.TRANSCODE_BITRATE+'') : '800k'
+  const transcode = ((process.env.TRANSCODE || 'false') + '').toLowerCase() === 'true'
+  const scale = process.env.TRANSCODE_SCALE ? parseInt(process.env.TRANSCODE_SCALE,10) : 720
+  const fps = process.env.TRANSCODE_FPS ? parseInt(process.env.TRANSCODE_FPS,10) : 60
+  const bitrate = process.env.TRANSCODE_BITRATE ? (process.env.TRANSCODE_BITRATE+'') : '3500k'
   const args = transcode ? [
     '-loglevel','error',
     '-fflags','+nobuffer+genpts',
