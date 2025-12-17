@@ -1,0 +1,29 @@
+--------- beginning of crash
+--------- beginning of system
+--------- beginning of kernel
+--------- beginning of main
+2025-12-17 22:59:18.701 20155-20155 Monotype                com.etechd.l3mon                     V  SetAppTypeFace- try to flip, app = com.etechd.l3mon
+2025-12-17 22:59:18.701 20155-20155 Monotype                com.etechd.l3mon                     V      Typeface getFontPathFlipFont - systemFont = /data/system/mt_fonts/0/Syndor#Syndor
+2025-12-17 22:59:47.564 22476-22476 Monotype                com.etechd.l3mon                     V  SetAppTypeFace- try to flip, app = com.etechd.l3mon
+2025-12-17 22:59:47.564 22476-22476 Monotype                com.etechd.l3mon                     V      Typeface getFontPathFlipFont - systemFont = /data/system/mt_fonts/0/Syndor#Syndor
+2025-12-17 22:59:47.632 22476-22476 AndroidRuntime          com.etechd.l3mon                     D  Shutting down VM
+2025-12-17 22:59:47.634 22476-22476 AndroidRuntime          com.etechd.l3mon                     E  FATAL EXCEPTION: main (Ask Gemini)
+                                                                                                    Process: com.etechd.l3mon, PID: 22476
+                                                                                                    java.lang.NoSuchFieldError: No field lbc of type Lcom/etechd/l3mon/LocalBridgeClient; in class Lcom/etechd/l3mon/ConnectionManager; or its superclasses (declaration of 'com.etechd.l3mon.ConnectionManager' appears in /data/app/~~HlDXng62VHVTebP4l8cPoA==/com.etechd.l3mon-m3x0Zhnah6AnPSGsGo7adQ==/base.apk)
+                                                                                                    	at com.etechd.l3mon.MainActivity.onCreate(MainActivity.java:25)
+                                                                                                    	at android.app.Activity.performCreate(Activity.java:8369)
+                                                                                                    	at android.app.Activity.performCreate(Activity.java:8348)
+                                                                                                    	at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1385)
+                                                                                                    	at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3742)
+                                                                                                    	at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3898)
+                                                                                                    	at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:108)
+                                                                                                    	at android.app.servertransaction.TransactionExecutor.executeCallbacks(TransactionExecutor.java:135)
+                                                                                                    	at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:95)
+                                                                                                    	at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2392)
+                                                                                                    	at android.os.Handler.dispatchMessage(Handler.java:106)
+                                                                                                    	at android.os.Looper.loopOnce(Looper.java:242)
+                                                                                                    	at android.os.Looper.loop(Looper.java:359)
+                                                                                                    	at android.app.ActivityThread.main(ActivityThread.java:8133)
+                                                                                                    	at java.lang.reflect.Method.invoke(Native Method)
+                                                                                                    	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:548)
+                                                                                                    	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:942)

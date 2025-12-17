@@ -1,0 +1,39 @@
+<div class="ui segment">
+    <div class="ui action input">
+        <button onclick="updateButton(this, '0xFI', { action: 'sc' })" class="ui left labeled icon button green">
+            <i class="camera icon"></i>
+            Take Screenshot
+        </button>
+    </div>
+
+    <table class="ui celled table">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Name</th>
+                <th>Preview</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <% pageData.forEach((item) => { 
+                let date = new Date(item.time);
+            %>
+            <tr>
+                <td class="collapsing"><%= date.toLocaleString('en-GB', { timeZone: 'UTC' }) %></td>
+                <td><%= item.originalName %></td>
+                <td class="collapsing">
+                    <img src="<%= item.path %>" style="max-height:80px" />
+                </td>
+                <td class="collapsing">
+                    <div class="ui buttons">
+                        <a href="<%= item.path %>" target="_blank" class="ui button blue">Open</a>
+                        <div class="or"></div>
+                        <a href="<%= item.path %>" download="<%= item.originalName %>" class="ui positive button">Save</a>
+                    </div>
+                </td>
+            </tr>
+            <% }) %>
+        </tbody>
+    </table>
+</div>

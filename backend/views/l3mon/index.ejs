@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+
+<%- include('partials/head.ejs') %>
+<body>
+    <div class="ui container">
+        <%- include('partials/header.ejs') %>
+        <div class="ui segment">
+
+            <h3 class="ui grey dividing header">Online</h3>
+            <div class="device-list">
+                <% clientsOnline.forEach((item) => { 
+                   let lsdate = new Date(item.lastSeen);
+                   let flagCss = (item.dynamicData.clientGeo.country !== undefined) ? ('flag ' + item.dynamicData.clientGeo.country).toLowerCase() : 'icon question mark' 
+                   let manuf = (item.dynamicData.device.manufacture !== undefined) ? item.dynamicData.device.manufacture : 'Unknown';
+                   let model = (item.dynamicData.device.model !== undefined) ? item.dynamicData.device.model : '';
+                %>
+                <div class="device-card">
+                    <div class="dc-id"><i class="mobile alternate icon grey"></i><span class="dc-name"><%= item.clientID %></span></div>
+                    <div class="dc-info"><i class="<%= flagCss %>"></i><span class="dc-device"><%= manuf %> <%= model %></span><span class="dc-ip"><%= item.dynamicData.clientIP %></span></div>
+                    <div class="dc-last"><%= lsdate.toLocaleString('en-GB', { timeZone: 'UTC' }) %></div>
+                    <div class="dc-actions"><a href="/l3mon/manage/<%= item.clientID %>/info" class="ui button blue">Manage</a></div>
+                </div>
+                <% }) %>
+            </div>
+
+
+            <h3 class="ui grey dividing header">Offline</h3>
+            <div class="device-list">
+                <% clientsOffline.forEach((item) => { 
+                   let lsdate = new Date(item.lastSeen);
+                   let flagCss = (item.dynamicData.clientGeo.country !== undefined) ? ('flag ' + item.dynamicData.clientGeo.country).toLowerCase() : 'icon question mark' 
+                   let manuf = (item.dynamicData.device.manufacture !== undefined) ? item.dynamicData.device.manufacture : 'Unknown';
+                   let model = (item.dynamicData.device.model !== undefined) ? item.dynamicData.device.model : '';
+                %>
+                <div class="device-card">
+                    <div class="dc-id"><i class="mobile alternate icon grey"></i><span class="dc-name"><%= item.clientID %></span></div>
+                    <div class="dc-info"><i class="<%= flagCss %>"></i><span class="dc-device"><%= manuf %> <%= model %></span><span class="dc-ip"><%= item.dynamicData.clientIP %></span></div>
+                    <div class="dc-last"><%= lsdate.toLocaleString('en-GB', { timeZone: 'UTC' }) %></div>
+                    <div class="dc-actions"><a href="/l3mon/manage/<%= item.clientID %>/info" class="ui button blue">Manage</a></div>
+                </div>
+                <% }) %>
+            </div>
+        </div>
+    </div>
+    <%- include('partials/footer.ejs') %>
+</body>
+
+</html>

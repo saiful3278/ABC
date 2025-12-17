@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.sam.deamon_apk
 
 import android.net.LocalServerSocket
@@ -9,8 +11,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okio.ByteString
 import java.io.InputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.Random
 
 class ScrcpyBridge(
@@ -26,8 +26,10 @@ class ScrcpyBridge(
     private var listenersStarted: Boolean = false
 
     fun start(bitrate: Int?, maxSize: Int?, maxFps: Int?) {
-        if (process != null) return
-        stop() // Ensure clean state
+        // If already running, stop first to allow restart with new params
+        if (process != null) {
+            stop()
+        }
         StatusRepository.setScrcpyStatus("starting")
         
         // Generate unique SCID (positive 31-bit integer formatted as Hex)
@@ -157,26 +159,34 @@ class ScrcpyBridge(
         }
     }
 
-    private fun envelope(channel: Int, payload: ByteArray): ByteArray {
-        val buf = ByteBuffer.allocate(1 + 4 + payload.size)
-        buf.order(ByteOrder.BIG_ENDIAN)
-        buf.put(channel.toByte())
-        buf.putInt(payload.size)
-        buf.put(payload)
-        return buf.array()
+    // Replacement for deprecated ByteString.of(array, offset, byteCount)
+    private fun ByteArray.toByteStringCompat(offset: Int, byteCount: Int): ByteString {
+        val copy = ByteArray(byteCount)
+        System.arraycopy(this, offset, copy, 0, byteCount)
+        return ByteString.of(*copy)
     }
 
     private fun CoroutineScope.handleControl(socket: LocalSocket) {
         try {
             val input = socket.inputStream
-            val buffer = ByteArray(16 * 1024)
+            val headerSize = 5
+            val payloadSize = 16 * 1024
+            val buffer = ByteArray(headerSize + payloadSize)
+            // Pre-fill Channel 1 (Control)
+            buffer[0] = 1.toByte()
+
             while (isActive) {
-                val read = input.read(buffer)
+                val read = input.read(buffer, headerSize, payloadSize)
                 if (read <= 0) break
-                val payload = buffer.copyOf(read)
-                val data = envelope(1, payload)
+                
+                // Write length (Big Endian)
+                buffer[1] = (read shr 24).toByte()
+                buffer[2] = (read shr 16).toByte()
+                buffer[3] = (read shr 8).toByte()
+                buffer[4] = read.toByte()
+
                 try {
-                    sendToBackend(ByteString.of(*data))
+                    sendToBackend(buffer.toByteStringCompat(0, read + headerSize))
                     StatusRepository.addControl(read)
                 } catch (_: Exception) {
                     // Ignore send errors, keep reading
@@ -192,10 +202,15 @@ class ScrcpyBridge(
     private fun CoroutineScope.handleVideo(socket: LocalSocket) {
         try {
             val ins = socket.inputStream
-            val readBuf = ByteArray(64 * 1024)
+            val headerSize = 5
+            val payloadSize = 64 * 1024
+            val readBuf = ByteArray(headerSize + payloadSize)
+            // Pre-fill Channel 0 (Video)
+            readBuf[0] = 0.toByte()
+
             var totalRead = 0L
             while (isActive) {
-                val n = ins.read(readBuf)
+                val n = ins.read(readBuf, headerSize, payloadSize)
                 if (n <= 0) break
                 
                 if (totalRead == 0L) {
@@ -203,13 +218,14 @@ class ScrcpyBridge(
                 }
                 totalRead += n
                 
-                // Direct Passthrough: Just envelope the raw chunk and send it
-                // FFmpeg on the backend handles the stream parsing
-                val payload = readBuf.copyOf(n)
-                val data = envelope(0, payload)
+                // Write length (Big Endian)
+                readBuf[1] = (n shr 24).toByte()
+                readBuf[2] = (n shr 16).toByte()
+                readBuf[3] = (n shr 8).toByte()
+                readBuf[4] = n.toByte()
                 
                 try {
-                    sendToBackend(ByteString.of(*data))
+                    sendToBackend(readBuf.toByteStringCompat(0, n + headerSize))
                     StatusRepository.addVideo(n)
                 } catch (e: Exception) {
                     // Ignore send errors (e.g. broken pipe), keep reading to drain scrcpy

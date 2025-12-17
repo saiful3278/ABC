@@ -1,0 +1,21 @@
+#!/system/bin/sh
+FILES="/sdcard/Android/data/com.etechd.l3mon/files"
+JAR="$FILES/scrcpy-server.jar"
+LOG="$FILES/scrcpy-agentd.log"
+PORT=""
+CONF=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --port) PORT="$2"; shift 2;;
+    --config) CONF="$2"; shift 2;;
+    *) shift 1;;
+  esac
+done
+if [ ! -f "$JAR" ]; then
+  echo "scrcpy-server.jar missing" >>"$LOG"
+  exit 1
+fi
+CLASSPATH="$JAR" app_process / com.genymobile.scrcpy.Server 1.5 tunnel_forward=true audio=false control=false log_level=info >>"$LOG" 2>&1 &
+while true; do
+  sleep 60
+done

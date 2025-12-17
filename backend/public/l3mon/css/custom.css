@@ -1,0 +1,130 @@
+.hoverEdit .item.active {
+  background-color: #eaeaea !important;
+}
+
+.hoverEdit .item:hover {
+  background-color: #fbfbfb !important;
+  border-color: rgba(34, 36, 38, 0.25) !important;
+}
+
+.event i.arrow.icon {
+  top: 15px;
+  position: relative;
+}
+
+.logs {
+  background-color: #4d4d4d;
+  min-height: 600px;
+  max-height: 600px;
+  width: 100%;
+  border-radius: 5px;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  color: #fff;
+  font-family: 'Courier New', Courier, monospace;
+  word-wrap: break-word;
+  padding: 10px;
+}
+
+.logs .logitm.INFO {
+  color: #6781f8;
+}
+
+.logs .logitm.SUCCESS {
+  color: #2ecc71;
+}
+
+.logs .logitm.ERROR {
+  color: #f03434;
+}
+/*# sourceMappingURL=custom.css.map */
+.brand { font-weight: 700; letter-spacing: 0.5px; font-size: 2.2rem; }
+.brand-s4i { color: #f1c40f; }
+.brand-ful { color: #6781f8; }
+.brand-large { font-size: 3rem; }
+.mobile-only { display: none; }
+@media (max-width: 768px) {
+  html, body { font-size: 14px; }
+  .brand { font-size: 1.8rem; }
+  .brand-large { font-size: 2.6rem; }
+  .ui.container { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .ui.secondary.menu { flex-wrap: wrap; }
+  .ui.secondary.menu .header.item img { width: 56px !important; }
+  .ui.secondary.menu .item { padding: 0.35em 0.55em !important; font-size: 0.85rem; }
+  .mobile-only { display: block; margin-bottom: 8px; }
+  #dm-menu-col { display: none; }
+  #dm-menu-col.open { display: block; }
+  .ui.vertical.menu .item i.icon { font-size: 0.9em; }
+  .ui.segment { padding: 0.8em 1em; }
+  .ui.table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; font-size: 0.85rem; }
+  .ui.table td, .ui.table th { padding: 0.4em 0.5em; }
+  .ui.form .inline.fields { flex-wrap: wrap; }
+  .ui.form .inline.fields .field, .ui.form .fields .field { width: 100% !important; }
+  .ui.form .field .ui.input input { font-size: 0.85rem; padding: 0.5em 0.6em; }
+  .ui.labeled.input .ui.label { font-size: 0.85rem; padding: 0.5em 0.6em; }
+  .ui.dropdown.label { font-size: 0.85rem; }
+  .ui.top.attached.tabular.menu { overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+  .ui.top.attached.tabular.menu .item { padding: 0.45em 0.6em; font-size: 0.85rem; }
+  .ui.button { font-size: 0.85rem; padding: 0.5em 0.65em; }
+  .ui.statistics.four { display: flex; flex-wrap: wrap; }
+  .ui.statistics .statistic { width: 50%; margin-bottom: 0.75rem !important; }
+  .ui.statistics .value, .ui.statistics .text.value { font-size: 1rem; }
+  .ui.statistics .label { font-size: 0.8rem; }
+  .logs { min-height: 360px; max-height: 360px; font-size: 0.85rem; }
+  #GPS_NOW_MAP { height: 220px !important; }
+  #GPS_LOG_MAP { height: 320px !important; }
+  .leaflet-popup-content { font-size: 0.85rem; }
+  .snackbar-container { font-size: 0.85rem; }
+}
+/* Device cell styling */
+.device-cell {
+  vertical-align: middle !important;
+}
+.device-cell .sub.header {
+  display: block;
+  color: rgba(0,0,0,0.6);
+  margin-top: 2px;
+  font-weight: 400;
+}
+@media (max-width: 768px) {
+  .device-cell .sub.header { font-size: 0.8rem; }
+}
+@media (max-width: 480px) {
+  .device-cell .sub.header { font-size: 0.75rem; }
+}
+@media (max-width: 480px) {
+  html, body { font-size: 13px; }
+  .brand { font-size: 1.6rem; }
+  .brand-large { font-size: 2.2rem; }
+  .ui.secondary.menu .header.item img { width: 48px !important; }
+  .ui.secondary.menu .item { font-size: 0.8rem; }
+  .ui.button { font-size: 0.8rem; padding: 0.45em 0.6em; }
+  .ui.table { font-size: 0.8rem; }
+  .ui.table td, .ui.table th { padding: 0.35em 0.45em; }
+  .ui.statistics .statistic { width: 100%; }
+  #GPS_NOW_MAP { height: 180px !important; }
+  #GPS_LOG_MAP { height: 260px !important; }
+  .logs { min-height: 300px; max-height: 300px; font-size: 0.8rem; }
+}
+
+.device-list { display: grid; grid-template-columns: 1fr; row-gap: 8px; }
+.device-card { display: grid; grid-template-columns: 1.3fr 2fr 1.5fr auto; align-items: center; column-gap: 10px; padding: 8px 10px; border: 1px solid rgba(34,36,38,.15); border-radius: 6px; background: #fff; position: relative; overflow: visible; }
+.dc-id .dc-name { font-weight: 600; margin-left: 6px; }
+.dc-info { display: flex; align-items: center; gap: 10px; }
+.dc-device { font-weight: 500; color: rgba(0,0,0,.8); }
+.dc-ip { color: rgba(0,0,0,.6); }
+.dc-last { color: rgba(0,0,0,.6); font-size: 0.9rem; }
+.dc-actions { position: relative; z-index: 10; }
+.dc-actions .ui.button { white-space: nowrap; display: block; width: 100%; cursor: pointer; }
+
+@media (max-width: 768px) {
+  .device-card { grid-template-columns: 1fr; row-gap: 6px; }
+  .dc-actions .ui.button { width: 100%; }
+  .dc-last { font-size: 0.85rem; }
+}
+
+@media (max-width: 480px) {
+  .device-list { row-gap: 6px; }
+  .device-card { padding: 6px 8px; }
+  .dc-id .dc-name { font-weight: 600; }
+}

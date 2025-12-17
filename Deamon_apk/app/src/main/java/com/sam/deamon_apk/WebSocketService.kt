@@ -144,23 +144,52 @@ class WebSocketService : Service() {
         })
     }
 
-    private fun runShell(cmd: String) {
+    private var shellProcess: Process? = null
+    private var shellInput: java.io.OutputStream? = null
+
+    private fun ensureShellProcess() {
+        if (shellProcess != null && (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) shellProcess!!.isAlive else true)) return
         try {
-            val p = ProcessBuilder("su","-c", cmd).redirectErrorStream(true).start()
-            scope.launch {
+            try {
+                shellProcess = ProcessBuilder("su").redirectErrorStream(true).start()
+            } catch (e: Exception) {
+                shellProcess = ProcessBuilder("sh").redirectErrorStream(true).start()
+            }
+            shellInput = shellProcess!!.outputStream
+            
+            scope.launch(Dispatchers.IO) {
                 try {
-                    val ins = p.inputStream
+                    val ins = shellProcess!!.inputStream
                     val buf = ByteArray(4096)
                     while (true) {
                         val n = ins.read(buf)
                         if (n <= 0) break
                         val s = String(buf, 0, n)
-                        val msg = "{\"type\":\"status\",\"source\":\"apk\",\"level\":\"info\",\"msg\":\"" + s.replace("\n","\\n").replace("\"","\\\"") + "\"}"
-                        try { ws?.send(msg) } catch (_: Exception) {}
+                        val msg = JSONObject()
+                        msg.put("type", "status")
+                        msg.put("source", "apk")
+                        msg.put("level", "info")
+                        msg.put("msg", s)
+                        try { ws?.send(msg.toString()) } catch (_: Exception) {}
                     }
                 } catch (_: Exception) {}
+                shellProcess = null
+                shellInput = null
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            shellProcess = null
+        }
+    }
+
+    private fun runShell(cmd: String) {
+        ensureShellProcess()
+        try {
+            shellInput?.write((cmd + "\n").toByteArray())
+            shellInput?.flush()
+        } catch (e: Exception) {
+            shellProcess = null
+            shellInput = null
+        }
     }
 
     private fun ensureBridge() {
