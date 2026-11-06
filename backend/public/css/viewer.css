@@ -1,0 +1,189 @@
+:root {
+  --bg: #000000;
+  --fg: #e7e9ee;
+  --panel: #11141a;
+  --accent: #2c3038;
+  --accent-hover: #3a404a;
+  --active: #39d98a;
+  --danger: #e55353;
+  --text-muted: #7b8191;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden; /* Prevent page scroll */
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-sizing: border-box;
+}
+
+/* Header & Toolbar */
+#header {
+  flex-shrink: 0;
+  background: var(--panel);
+  border-bottom: 1px solid #222;
+  display: flex;
+  flex-direction: column;
+}
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: #080a0d;
+}
+
+.status-left { display: flex; gap: 8px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+.dot.ok { background: var(--active); }
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  align-items: center;
+  scrollbar-width: none; /* Hide scrollbar */
+}
+.toolbar::-webkit-scrollbar { display: none; }
+
+.group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-right: 8px;
+  border-right: 1px solid #333;
+}
+.group:last-child { border-right: none; }
+
+.btn {
+  background: var(--accent);
+  color: var(--fg);
+  border: none;
+  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 0;
+}
+.btn:hover { background: var(--accent-hover); }
+.btn:active { transform: scale(0.95); }
+.btn.primary { color: var(--active); }
+.btn.danger { color: var(--danger); }
+.btn.text-btn { width: auto; padding: 0 12px; font-size: 13px; font-weight: 600; }
+
+.select {
+  background: var(--accent);
+  color: var(--fg);
+  border: none;
+  border-radius: 6px;
+  height: 36px;
+  padding: 0 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+/* Start/Stop Bar */
+.stream-controls {
+  display: flex;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-top: 1px solid #222;
+  justify-content: center;
+}
+.stream-controls .btn {
+  width: auto;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.stream-controls .btn#start { background: #2a7; color: #fff; }
+.stream-controls .btn#stop { background: #e55; color: #fff; }
+
+/* Stream Placeholder */
+.stream-box {
+  flex: 1;
+  min-height: 0; /* Allow shrinking */
+  width: 100%;
+  position: relative;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none; /* Prevent browser gestures */
+}
+
+/* Canvas fits inside */
+canvas.viewer {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+/* Overlays */
+.overlay-stats {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0,0,0,0.6);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  color: rgba(255,255,255,0.7);
+  pointer-events: none;
+}
+.overlay-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(229, 83, 83, 0.9);
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: bold;
+  display: none;
+}
+
+/* Logs and Diag hidden by default or small */
+.log-panel {
+  display: none; /* Hide log for clean UI, maybe toggle? */
+}
+
+@media (max-width: 480px) {
+  .toolbar { gap: 8px; padding: 6px; }
+  .btn { width: 32px; height: 32px; font-size: 14px; }
+  .select { height: 32px; font-size: 11px; }
+  .stream-controls { padding: 6px; }
+  .stream-controls .btn { padding: 0 16px; height: 36px; }
+}

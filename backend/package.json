@@ -1,0 +1,15 @@
+{
+  "name": "remote-scrcpy-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "deploy": "fly deploy"
+  },
+  "dependencies": {
+    "ejs": "^3.1.9",
+    "express": "^4.19.2",
+    "fluent-ffmpeg": "^2.1.3",
+    "ws": "^8.18.0"
+  }
+}

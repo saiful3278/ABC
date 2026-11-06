@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
+      STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_TYPE: jks
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses
+
+      - name: Restore keystore from secret
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p "$(dirname "$KEYSTORE_FILE")"
+            printf %s "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
+          fi
+      - name: Verify alias in keystore
+        run: keytool -list -storetype "$KEYSTORE_TYPE" -keystore "$KEYSTORE_FILE" -storepass "$STORE_PASSWORD" | grep -i "$KEY_ALIAS"
+      - name: Validate keystore exists
+        run: test -f "$KEYSTORE_FILE"
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Build release APK (signed)
+        run: ./gradlew clean assembleRelease
+      
+      - name: Publish GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
+          files: |
+            **/build/outputs/apk/release/*.apk
+          draft: false
+          generate_release_notes: true

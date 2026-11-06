@@ -1,0 +1,28 @@
+{
+  "clientID": "fda4604b990dcc0d",
+  "CommandQue": [
+    {
+      "sec": "5",
+      "type": "0xMI",
+      "uid": 2684
+    }
+  ],
+  "SMSData": [],
+  "CallData": [],
+  "contacts": [],
+  "wifiNow": [],
+  "wifiLog": [],
+  "clipboardLog": [],
+  "notificationLog": [],
+  "enabledPermissions": [],
+  "apps": [],
+  "GPSData": [],
+  "GPSSettings": {
+    "updateFrequency": 0
+  },
+  "systemInfo": {},
+  "liveControl": [],
+  "latestScreenshot": "",
+  "downloads": [],
+  "currentFolder": []
+}

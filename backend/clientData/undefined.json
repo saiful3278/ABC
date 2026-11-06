@@ -1,0 +1,21 @@
+{
+  "CommandQue": [],
+  "SMSData": [],
+  "CallData": [],
+  "contacts": [],
+  "wifiNow": [],
+  "wifiLog": [],
+  "clipboardLog": [],
+  "notificationLog": [],
+  "enabledPermissions": [],
+  "apps": [],
+  "GPSData": [],
+  "GPSSettings": {
+    "updateFrequency": 0
+  },
+  "systemInfo": {},
+  "liveControl": [],
+  "latestScreenshot": "",
+  "downloads": [],
+  "currentFolder": []
+}

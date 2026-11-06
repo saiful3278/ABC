@@ -1,0 +1,51 @@
+# flyctl launch added from .gitignore
+# General
+**\.DS_Store
+**\Thumbs.db
+**\*.log
+
+# IDEs
+**\.idea
+**\.vscode
+**\*.swp
+**\*.swo
+
+# Node.js (backend)
+**\node_modules
+**\npm-debug.log
+**\yarn-error.log
+**\.env
+
+# Android (Deamon_apk) - These are also handled by nested .gitignore, but adding here for visibility
+**\Deamon_apk\build
+**\Deamon_apk\.gradle
+**\Deamon_apk\local.properties
+
+# Vercel
+**\.vercel
+
+# flyctl launch added from Deamon_apk\.gitignore
+Deamon_apk\**\*.iml
+Deamon_apk\**\.gradle
+Deamon_apk\local.properties
+Deamon_apk\.idea\caches
+Deamon_apk\.idea\libraries
+Deamon_apk\.idea\modules.xml
+Deamon_apk\.idea\workspace.xml
+Deamon_apk\.idea\navEditor.xml
+Deamon_apk\.idea\assetWizardSettings.xml
+Deamon_apk\**\.DS_Store
+Deamon_apk\build
+Deamon_apk\captures
+Deamon_apk\**\.externalNativeBuild
+Deamon_apk\**\.cxx
+Deamon_apk\**\local.properties
+
+# flyctl launch added from Deamon_apk\.idea\.gitignore
+# Default ignored files
+Deamon_apk\.idea\shelf
+Deamon_apk\.idea\workspace.xml
+
+# flyctl launch added from Deamon_apk\app\.gitignore
+Deamon_apk\app\build
+fly.toml
